@@ -1,0 +1,431 @@
+name: "gcp_scc_misconfiguration_to_ocsf_compliance_finding"
+input_schema: "gcp_scc_finding"
+output_schema: "ocsf_compliance_finding_v110"
+
+# JSONPath expressions to extract data from GCP Security Command Center findings
+extractors:
+  # Core Finding Fields
+  finding_name: "$.event_data.finding.name"
+  finding_id: "$.event_data.finding.name"
+  parent: "$.event_data.finding.parent"
+  resource_name: "$.event_data.finding.resourceName"
+  state: "$.event_data.finding.state"
+  category: "$.event_data.finding.category"
+  external_uri: "$.event_data.finding.externalUri"
+  source_properties: "$.event_data.finding.sourceProperties"
+  
+  # Security Marks
+  security_marks: "$.event_data.finding.securityMarks"
+  
+  # Timestamps
+  event_time: "$.event_data.finding.eventTime"
+  create_time: "$.event_data.finding.createTime"
+  
+  # Severity
+  severity: "$.event_data.finding.severity"
+  mute: "$.event_data.finding.mute"
+  
+  # Compliance Specific
+  compliances: "$.event_data.finding.compliances"
+  compliance_standards: "$.event_data.finding.compliances[*].standard"
+  compliance_ids: "$.event_data.finding.compliances[*].ids"
+  compliance_version: "$.event_data.finding.compliances[*].version"
+  
+  # Description and explanation
+  description: "$.event_data.finding.description"
+  recommendation: "$.event_data.finding.recommendation"
+  next_steps: "$.event_data.finding.nextSteps"
+  
+  # GCP Resource Information
+  project_id: "$.event_data.finding.resourceName"
+  project_display_name: "$.event_data.resource.projectDisplayName"
+  resource_type: "$.event_data.resource.type"
+  resource_parent: "$.event_data.resource.parent"
+  resource_display_name: "$.event_data.resource.displayName"
+  folders: "$.event_data.resource.folders"
+  
+  # Finding Class Information
+  finding_class: "$.event_data.finding.findingClass"
+  
+  # MITRE ATT&CK
+  mitre_attack: "$.event_data.finding.mitreAttack"
+  
+  # Connections (affected services/resources)
+  connections: "$.event_data.finding.connections"
+  
+  # Canonical Name for asset identification
+  canonical_name: "$.event_data.finding.canonicalName"
+  
+  # Processing Metadata
+  processing_source: "$.processing_metadata.source"
+  processor_version: "$.processing_metadata.processor_version"
+  processed_timestamp: "$.processing_metadata.processed_timestamp"
+  notificationConfigName: "$.event_data.notificationConfigName"
+
+# OCSF v1.1.0 compliant template for Compliance Finding (Misconfiguration)
+template: |
+  {
+    "version": "1.1.0",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2003,
+    "class_name": "Compliance Finding",
+    "type_uid": 200301,
+    "type_name": "Compliance Finding: Create",
+    "time": {{ extractors.event_time | to_unix_timestamp_ms | default(extractors.create_time | to_unix_timestamp_ms) }},
+    "severity_id": {{ extractors.severity | map_gcp_severity_to_ocsf }},
+    "severity": "{{ extractors.severity | format_severity }}",
+    "status": "{{ extractors.state | map_gcp_state_to_status }}",
+    "status_id": {{ extractors.state | map_gcp_state_to_status_id }},
+    "status_detail": "{{ extractors.mute | default('') }}",
+    "cloud": {
+      "provider": "GCP",
+      "account": {
+        "uid": "{{ extractors.project_id | extract_gcp_project_id }}",
+        "name": "{{ extractors.project_display_name | default('') }}",
+        "type": "GCP Project",
+        "type_id": 10
+      }{% set org_id = extractors.parent | extract_gcp_org_id %}{% if org_id %},
+      "org": {
+        "uid": "{{ org_id }}",
+        "name": "{{ extractors.parent | extract_gcp_org_name }}"
+      }{% endif %}{% set region = extractors.resource_name | extract_gcp_region %}{% if region %},
+      "region": "{{ region }}"{% endif %}
+    },
+    "finding_info": {
+      "uid": "{{ extractors.finding_id | extract_finding_uid }}",
+      "title": "{{ extractors.category | default('GCP Security Misconfiguration') }}",
+      "desc": "{{ extractors.description | default(extractors.category) | json_escape }}"{% if extractors.external_uri %},
+      "src_url": "{{ extractors.external_uri }}"{% endif %},
+      "types": ["{{ extractors.category }}", "Misconfiguration", "Compliance"]{% if extractors.finding_class %},
+      "related_events": [
+        {
+          "type": "{{ extractors.finding_class }}",
+          "type_uid": {{ extractors.finding_class | map_finding_class }}
+        }
+      ]{% endif %},
+      "created_time": {{ extractors.create_time | to_unix_timestamp_ms }},
+      "modified_time": {{ extractors.event_time | to_unix_timestamp_ms }},
+      "product": {
+        "name": "Security Command Center",
+        "vendor_name": "Google Cloud",
+        "version": "1.0",
+        "feature": {
+          "name": "Security Health Analytics"
+        }
+      }
+    },{% if extractors.compliances %}
+    "compliance": {
+      "requirements": [
+        {% for compliance in extractors.compliances %}
+        "{{ compliance.standard }}{% if compliance.version %} {{ compliance.version }}{% endif %}{% if compliance.ids %}: {{ compliance.ids | join(', ') }}{% endif %}"{{ ',' if not loop.last else '' }}
+        {% endfor %}
+      ],
+      "status": "{{ extractors.state | map_compliance_status }}",
+      "status_detail": "{{ extractors.description | default('') | json_escape }}"
+    },{% endif %}{% if extractors.compliances %}
+    "compliance_frameworks": [
+      {% for compliance in extractors.compliances %}
+      {
+        "framework": "{{ compliance.standard }}",
+        "version": "{{ compliance.version | default('latest') }}",
+        "controls": [
+          {% if compliance.ids %}
+            {% for control_id in compliance.ids %}
+          {
+            "control_id": "{{ control_id }}",
+            "status": "{{ extractors.state | map_compliance_status }}"
+          }{{ ',' if not loop.last else '' }}
+            {% endfor %}
+          {% endif %}
+        ]
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ],{% endif %}{% if extractors.mitre_attack %}
+    "attacks": [
+      {% for attack in extractors.mitre_attack.techniques %}
+      {
+        "version": "{{ extractors.mitre_attack.version | default('v13') }}",
+        "tactics": [
+          {% for tactic in attack.tactics %}
+          {
+            "name": "{{ tactic }}",
+            "uid": "{{ tactic | map_mitre_tactic_uid }}"
+          }{{ ',' if not loop.last else '' }}
+          {% endfor %}
+        ],
+        "technique": {
+          "name": "{{ attack.name }}",
+          "uid": "{{ attack.id }}"
+        }
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ],{% endif %}{% if extractors.resource_name %}
+    "resources": [
+      {
+        "uid": "{{ extractors.resource_name }}",
+        "name": "{{ extractors.resource_display_name | default(extractors.resource_name | extract_resource_name) }}",
+        "type": "{{ extractors.resource_type | default('') }}",
+        "cloud_partition": "gcp-public",
+        "region": "{{ extractors.resource_name | extract_gcp_region }}"{% if extractors.canonical_name %},
+        "data": {
+          "canonical_name": "{{ extractors.canonical_name }}"
+        }{% endif %}{% if extractors.project_id %},
+        "owner": {
+          "account": {
+            "uid": "{{ extractors.project_id | extract_gcp_project_id }}",
+            "name": "{{ extractors.project_display_name | default('') }}"
+          }
+        }{% endif %},
+        "role_id": 3,
+        "role": "Affected"{% if extractors.folders %},
+        "labels": [
+          {% for folder in extractors.folders %}
+          "folder:{{ folder.resourceFolder }}"{{ ',' if not loop.last else '' }}
+          {% endfor %}
+        ]{% endif %}
+      }{% if extractors.connections %},
+      {% for connection in extractors.connections %}
+      {
+        "uid": "{{ connection.sourceIp | default(connection.destinationIp) | default('') }}",
+        "name": "{{ connection.protocol | default('') }} Connection",
+        "type": "Network Connection",
+        "data": {
+          "source_ip": "{{ connection.sourceIp | default('') }}",
+          "source_port": {{ connection.sourcePort | default(0) }},
+          "destination_ip": "{{ connection.destinationIp | default('') }}",
+          "destination_port": {{ connection.destinationPort | default(0) }},
+          "protocol": "{{ connection.protocol | default('') }}"
+        },
+        "role_id": 4,
+        "role": "Related"
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+      {% endif %}
+    ],{% endif %}{% if extractors.recommendation or extractors.next_steps %}
+    "remediation": {
+      "desc": "{{ (extractors.recommendation | default('') ~ (' ' ~ extractors.next_steps if extractors.next_steps else '')) | json_escape }}",
+      "references": [
+        {% if extractors.external_uri %}
+        "{{ extractors.external_uri }}"
+        {% endif %}
+      ]
+    },{% endif %}
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Security Command Center",
+        "vendor_name": "Google Cloud",
+        "version": "1.0",
+        "feature": {
+          "name": "{{ extractors.category }}"
+        }
+      },
+      "profiles": ["security_control", "cloud", "compliance"],
+      "event_code": "{{ extractors.category }}"{% if extractors.processed_timestamp %},
+      "logged_time": {{ extractors.processed_timestamp | to_unix_timestamp_ms }}{% endif %},
+      "original_time": {{ extractors.event_time | default(extractors.create_time) | to_unix_timestamp_ms }},
+      "correlation_uid": "{{ extractors.finding_id | extract_finding_uid }}"{% if extractors.notificationConfigName %},
+      "labels": [
+        "notification_config:{{ extractors.notificationConfigName | extract_notification_config_name }}"{% if extractors.mute %},
+        "muted:{{ extractors.mute }}"{% endif %}
+      ]{% endif %}
+    },
+    "unmapped": {
+      "source_properties": {{ extractors.source_properties | to_json | default('{}') }},
+      "security_marks": {{ extractors.security_marks | to_json | default('{}') }}{% if extractors.connections %},
+      "connections": {{ extractors.connections | to_json }}{% endif %}
+    },
+    "raw_data": {{ gcp_event | to_json }}
+  }
+
+# Custom filters for GCP-specific data transformations
+filters:
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  extract_gcp_project_id: |
+    def extract_gcp_project_id(resource_name):
+        # Extract from: organizations/123/sources/456/findings/789 or projects/my-project/...
+        if not resource_name:
+            return ''
+        if 'projects/' in resource_name:
+            parts = resource_name.split('projects/')
+            if len(parts) > 1:
+                project_part = parts[1].split('/')[0]
+                return project_part
+        return ''
+  
+  extract_gcp_org_id: |
+    def extract_gcp_org_id(parent_name):
+        # Extract from: organizations/123456789
+        if not parent_name or 'organizations/' not in parent_name:
+            return ''
+        parts = parent_name.split('organizations/')
+        if len(parts) > 1:
+            return parts[1].split('/')[0]
+        return ''
+  
+  extract_gcp_org_name: |
+    def extract_gcp_org_name(parent_name):
+        # Extract organization name from parent path
+        if not parent_name or 'organizations/' not in parent_name:
+            return ''
+        parts = parent_name.split('organizations/')
+        if len(parts) > 1:
+            org_id = parts[1].split('/')[0]
+            return f"Organization {org_id}"
+        return ''
+  
+  extract_gcp_region: |
+    def extract_gcp_region(resource_name):
+        # Extract region from resource name if present
+        if not resource_name:
+            return 'global'
+        if '/locations/' in resource_name:
+            parts = resource_name.split('/locations/')
+            if len(parts) > 1:
+                return parts[1].split('/')[0]
+        if '/regions/' in resource_name:
+            parts = resource_name.split('/regions/')
+            if len(parts) > 1:
+                return parts[1].split('/')[0]
+        return 'global'
+  
+  extract_finding_uid: |
+    def extract_finding_uid(finding_name):
+        # Extract the finding ID from the full resource name
+        if not finding_name:
+            return ''
+        parts = finding_name.split('/')
+        if len(parts) > 0:
+            return parts[-1]
+        return finding_name
+  
+  extract_notification_config_name: |
+    def extract_notification_config_name(config_name):
+        # Extract notification config name from full path
+        if not config_name:
+            return ''
+        parts = config_name.split('/')
+        if len(parts) > 0:
+            return parts[-1]
+        return config_name
+  
+  map_gcp_severity_to_ocsf: |
+    def map_gcp_severity_to_ocsf(severity):
+        # Map GCP severity to OCSF severity_id
+        severity_map = {
+            'CRITICAL': 5,  # Critical
+            'HIGH': 4,      # High
+            'MEDIUM': 3,    # Medium
+            'LOW': 2,       # Low
+            'UNSPECIFIED': 1  # Informational
+        }
+        return severity_map.get(str(severity).upper(), 1)
+  
+  format_severity: |
+    def format_severity(severity):
+        if not severity:
+            return 'Unknown'
+        return str(severity).capitalize()
+  
+  map_gcp_state_to_status: |
+    def map_gcp_state_to_status(state):
+        # Map GCP finding state to OCSF status
+        state_map = {
+            'ACTIVE': 'New',
+            'INACTIVE': 'Suppressed'
+        }
+        return state_map.get(str(state).upper(), 'Other')
+  
+  map_gcp_state_to_status_id: |
+    def map_gcp_state_to_status_id(state):
+        # Map GCP finding state to OCSF status_id
+        state_map = {
+            'ACTIVE': 1,  # New
+            'INACTIVE': 4  # Suppressed
+        }
+        return state_map.get(str(state).upper(), 99)
+  
+  map_compliance_status: |
+    def map_compliance_status(state):
+        # Map GCP finding state to compliance status
+        state_map = {
+            'ACTIVE': 'Non-Compliant',
+            'INACTIVE': 'Compliant'
+        }
+        return state_map.get(str(state).upper(), 'Unknown')
+  
+  map_finding_class: |
+    def map_finding_class(finding_class):
+        # Map GCP finding class to OCSF type_uid
+        class_map = {
+            'THREAT': 200401,  # Detection Finding
+            'VULNERABILITY': 200201,  # Vulnerability Finding
+            'MISCONFIGURATION': 200301,  # Compliance Finding
+            'OBSERVATION': 200001,  # Security Finding
+            'SCC_ERROR': 200001  # Security Finding
+        }
+        return class_map.get(str(finding_class).upper(), 200001)
+  
+  extract_resource_name: |
+    def extract_resource_name(resource_path):
+        if not resource_path:
+            return ''
+        parts = resource_path.split('/')
+        if len(parts) > 0:
+            return parts[-1]
+        return resource_path
+  
+  map_mitre_tactic_uid: |
+    def map_mitre_tactic_uid(tactic_name):
+        # Map MITRE tactic names to UIDs (simplified mapping)
+        tactic_map = {
+            'Reconnaissance': 'TA0043',
+            'Resource Development': 'TA0042',
+            'Initial Access': 'TA0001',
+            'Execution': 'TA0002',
+            'Persistence': 'TA0003',
+            'Privilege Escalation': 'TA0004',
+            'Defense Evasion': 'TA0005',
+            'Credential Access': 'TA0006',
+            'Discovery': 'TA0007',
+            'Lateral Movement': 'TA0008',
+            'Collection': 'TA0009',
+            'Command and Control': 'TA0011',
+            'Exfiltration': 'TA0010',
+            'Impact': 'TA0040'
+        }
+        return tactic_map.get(tactic_name, 'TA0000')
+  
+  to_json: |
+    def to_json(data):
+        if not data:
+            return '{}'
+        try:
+            return json.dumps(data)
+        except:
+            return '{}'
+  
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped

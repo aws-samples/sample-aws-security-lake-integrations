@@ -1,0 +1,136 @@
+# © 2025 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
+# Azure Integration Module - Example Configuration
+#
+# This configuration demonstrates how to enable and configure the Azure
+# integration module for Microsoft Defender for Cloud with AWS Security Lake.
+
+integrations:
+  azure:
+    enabled: true
+    modulePath: modules/azure  # Optional, defaults to modules/azure
+    
+    config:
+      # Event Hub Processor Configuration
+      # Polls Azure Event Hub for Microsoft Defender security events
+      eventHubProcessor:
+        enabled: true
+        functionName: azure-eventhub-processor
+        memorySize: 512        # MB (128-10240)
+        timeout: 300           # seconds (1-900)
+        reservedConcurrentExecutions: 1  # Prevents duplicate processing
+        schedule: rate(5 minutes)  # EventBridge schedule expression
+        azureCredentialsSecretName: azure-eventhub-credentials
+        environment:
+          LOGGING_LEVEL: INFO  # DEBUG for verbose logging
+      
+      # Flow Log Processor Configuration (Optional)
+      # Processes Azure VNet Flow Logs triggered by Event Grid
+      flowLogProcessor:
+        enabled: true
+        functionName: azure-flowlog-processor
+        memorySize: 1024       # Larger memory for flow log processing
+        timeout: 600           # 10 minutes for blob download + processing
+        reservedConcurrentExecutions: 5  # Parallel processing
+        batchSize: 10          # SQS batch size (1-10)
+        maximumBatchingWindowInSeconds: 5
+        azureFlowLogsSecretName: azure-flowlogs-credentials
+        environment:
+          LOGGING_LEVEL: INFO
+          SECURITY_LAKE_ENABLED: true
+      
+      # Secrets Manager Configuration
+      secretsManager:
+        # Event Hub credentials secret
+        eventHubSecret:
+          secretName: azure-eventhub-credentials
+          description: Azure Event Hub connection credentials for Microsoft Defender
+          create: true  # Set to false if secret already exists
+          secretTemplate:
+            eventHubNamespace: PLACEHOLDER_NAMESPACE.servicebus.windows.net
+            eventHubName: PLACEHOLDER_EVENTHUB_NAME
+            consumerGroup: $Default
+            connectionString: Endpoint=sb://PLACEHOLDER_NAMESPACE.servicebus.windows.net/;SharedAccessKeyName=PLACEHOLDER;SharedAccessKey=PLACEHOLDER
+        
+        # Flow Logs credentials secret (if flow log processor enabled)
+        flowLogsSecret:
+          secretName: azure-flowlogs-credentials
+          description: Azure Storage Account credentials for VNet Flow Logs access
+          create: true
+          secretTemplate:
+            tenantId: PLACEHOLDER_TENANT_ID
+            clientId: PLACEHOLDER_CLIENT_ID
+            clientSecret: PLACEHOLDER_CLIENT_SECRET
+            subscriptionId: PLACEHOLDER_SUBSCRIPTION_ID
+            storageAccountName: PLACEHOLDER_STORAGE_ACCOUNT_NAME
+            storageAccountResourceId: /subscriptions/PLACEHOLDER/resourceGroups/PLACEHOLDER/providers/Microsoft.Storage/storageAccounts/PLACEHOLDER
+      
+      # DynamoDB Checkpoint Store Configuration
+      checkpointStore:
+        enabled: true
+        tableName: azure-eventhub-checkpoint-store
+        billingMode: PAY_PER_REQUEST  # or PROVISIONED
+        encryption:
+          useSharedKey: true  # Use shared KMS key from core stack
+        ttl:
+          enabled: true
+          attributeName: ttl
+          defaultTtlHours: 168  # 7 days
+
+# Performance Tuning Examples:
+
+# High Volume Environment (>1000 events/minute):
+# integrations:
+#   azure:
+#     config:
+#       eventHubProcessor:
+#         memorySize: 1024
+#         timeout: 600
+#         schedule: rate(1 minute)
+#       flowLogProcessor:
+#         memorySize: 2048
+#         timeout: 900
+#         reservedConcurrentExecutions: 10
+#         batchSize: 5
+
+# Low Volume Environment (<100 events/minute):
+# integrations:
+#   azure:
+#     config:
+#       eventHubProcessor:
+#         memorySize: 256
+#         timeout: 120
+#         schedule: rate(15 minutes)
+#       flowLogProcessor:
+#         memorySize: 512
+#         timeout: 300
+#         reservedConcurrentExecutions: 2
+#         batchSize: 10
+
+# Cost-Optimized Development Environment:
+# integrations:
+#   azure:
+#     config:
+#       eventHubProcessor:
+#         memorySize: 256
+#         timeout: 120
+#         schedule: rate(15 minutes)
+#       flowLogProcessor:
+#         enabled: false  # Disable if not testing flow logs
+#       checkpointStore:
+#         billingMode: PAY_PER_REQUEST
+#         encryption:
+#           useSharedKey: true  # Use AWS-managed key in dev
+
+# Post-Deployment Configuration:
+#
+# After deploying with this configuration:
+# 1. Deploy Azure infrastructure using Terraform (see terraform/README.md)
+# 2. Run configuration script to populate secrets:
+#    cd scripts && ./configure-secrets-manager.sh
+# 3. Verify Microsoft Defender continuous export is configured
+# 4. Test integration:
+#    aws lambda invoke --function-name azure-eventhub-processor-{env} --payload '{}' response.json

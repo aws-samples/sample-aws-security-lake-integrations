@@ -1,0 +1,11 @@
+# AWS Lambda Requirements for Microsoft Defender Event Hub Processor
+# Lightweight dependencies to avoid Lambda size limits
+
+# AWS SDK
+boto3>=1.28.0
+
+# Azure Event Hub SDK
+azure-eventhub>=5.11.0
+
+# Core dependencies (usually included in Lambda runtime)
+# requests>=2.31.0  # Usually included in Lambda Python runtime

@@ -1,0 +1,149 @@
+name: "security_assessment_to_ocsf_detection_finding"
+input_schema: "azure_security_assessment"
+output_schema: "ocsf_detection_finding_v170"
+
+# JSONPath expressions to extract data from Azure security assessment events
+extractors:
+  # Core Assessment Fields
+  assessment_id: "$.event_data.id"
+  assessment_name: "$.event_data.properties.displayName"
+  assessment_type: "$.event_data.type"
+  
+  # Metadata
+  display_name: "$.event_data.properties.metadata.displayName"
+  description: "$.event_data.properties.metadata.description"
+  severity: "$.event_data.properties.metadata.severity"
+  assessment_type_metadata: "$.event_data.properties.metadata.assessmentType"
+  
+  # Status
+  status_code: "$.event_data.properties.status.code"
+  status_cause: "$.event_data.properties.status.cause"
+  status_description: "$.event_data.properties.status.description"
+  status_change_date: "$.event_data.properties.status.statusChangeDate"
+  first_evaluation_date: "$.event_data.properties.status.firstEvaluationDate"
+  
+  # Resource Information
+  resource_id: "$.event_data.properties.resourceDetails.id"
+  resource_name: "$.event_data.properties.resourceDetails.resourceName"
+  resource_type: "$.event_data.properties.resourceDetails.resourceType"
+  resource_source: "$.event_data.properties.resourceDetails.source"
+  
+  # Remediation and Policy
+  remediation_description: "$.event_data.properties.metadata.remediationDescription"
+  policy_definition_id: "$.event_data.properties.metadata.policyDefinitionId"
+  
+  # Categories and Classifications
+  categories: "$.event_data.properties.metadata.categories"
+  tactics: "$.event_data.properties.metadata.tactics"
+  techniques: "$.event_data.properties.metadata.techniques"
+  
+  # Processing Metadata
+  processing_source: "$.processing_metadata.source"
+  processor_version: "$.processing_metadata.processor_version"
+  processed_timestamp: "$.processing_metadata.processed_timestamp"
+
+# OCSF v1.1.0 compliant template for Detection Finding
+template: |
+  {
+    "version": "1.1.0",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "time": {{ extractors.status_change_date | to_unix_timestamp_ms }},
+    "severity_id": {{ extractors.severity | map_azure_severity_to_ocsf }},
+    "severity": "{{ extractors.severity | format_severity }}",
+    "status": "{{ extractors.status_code | default('New') }}",
+    "status_id": {{ extractors.status_code | map_alert_status }},
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.resource_id | extract_azure_subscription }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      },
+      "region": "{{ extractors.resource_id | extract_azure_region }}"
+    },
+    "finding_info": {
+      "uid": "{{ extractors.assessment_id }}",
+      "title": "{{ extractors.display_name | default(extractors.assessment_name) | default('Azure Security Assessment') | truncate(200) }}",
+      "desc": "{{ extractors.description | default(extractors.status_description) | default('') | json_escape | truncate(1000) }}",
+      "types": ["{{ extractors.assessment_type }}"],
+      "created_time": {{ extractors.first_evaluation_date | to_unix_timestamp_ms }},
+      "modified_time": {{ extractors.status_change_date | to_unix_timestamp_ms }},
+      "product": {
+        "name": "Microsoft Defender for Cloud - Security Assessment",
+        "vendor_name": "Microsoft",
+        "version": "1.0"
+      }
+    }{% if extractors.tactics %},
+    "attacks": [
+      {% for tactic in extractors.tactics %}
+      {
+        "tactic": {
+          "name": "{{ tactic }}",
+          "uid": "{{ tactic | map_mitre_tactic }}"
+        }{% if extractors.techniques %},
+        "technique": {
+          "name": "{{ extractors.techniques[loop.index0] | default('') }}"
+        }{% endif %}
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ]{% endif %}{% if extractors.resource_id %},
+    "resources": [
+      {
+        "uid": "{{ extractors.resource_id }}",
+        "name": "{{ extractors.resource_name | default('') }}",
+        "type": "{{ extractors.resource_type | default('') }}",
+        "cloud_partition": "azure-commercial",
+        "region": "{{ extractors.resource_id | extract_azure_region }}",
+        "role_id": 3,
+        "role": "Affected"
+      }
+    ]{% endif %}{% if extractors.remediation_description %},
+    "remediation": {
+      "desc": "{{ extractors.remediation_description | json_escape | truncate(500) }}"
+    }{% endif %},
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Microsoft Defender for Cloud - Security Assessment",
+        "vendor_name": "Microsoft",
+        "version": "1.0"
+      },
+      "profiles": ["security_control"],
+      "event_code": "{{ extractors.assessment_type }}"{% if extractors.processed_timestamp %},
+      "logged_time": {{ extractors.processed_timestamp | to_unix_timestamp_ms }}{% endif %},
+      "original_time": {{ extractors.first_evaluation_date | to_unix_timestamp_ms }}
+    },
+    "raw_data": {{ azure_event | to_json }}
+  }
+
+# Additional filters for OCSF compliance
+filters:
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00' if 'T' in timestamp_str else timestamp_str)
+            return int(dt.timestamp() * 1000)
+        except:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped

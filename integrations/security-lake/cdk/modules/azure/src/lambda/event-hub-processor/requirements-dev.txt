@@ -1,0 +1,16 @@
+# Development Dependencies for Event Hub Processor Lambda
+# These are only needed for local development and testing
+
+# Configuration management
+python-dotenv>=1.0.0
+
+# Testing and development
+pytest>=7.0.0
+moto>=4.2.0
+
+# AWS SDK for local development (usually included in Lambda runtime)
+boto3>=1.28.0
+botocore>=1.31.0
+
+# Azure Event Hub SDK
+azure-eventhub>=5.11.0

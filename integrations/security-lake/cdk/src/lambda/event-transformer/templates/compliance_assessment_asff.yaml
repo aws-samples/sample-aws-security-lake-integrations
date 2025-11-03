@@ -1,0 +1,95 @@
+name: "compliance_assessment_to_asff"
+input_schema: "azure_compliance_assessment"
+output_schema: "asff_compliance_finding"
+
+# JSONPath extractors for Azure Compliance Assessment data
+extractors:
+  # Core Assessment Fields
+  assessment_id: "$.event_data.id"
+  assessment_name: "$.event_data.properties.displayName"
+  assessment_description: "$.event_data.properties.description"
+  
+  # Compliance Status
+  compliance_state: "$.event_data.properties.state"
+  assessment_status: "$.event_data.properties.status"
+  
+  # Time Information
+  time_generated: "$.event_data.properties.timestamp"
+  last_modified_date: "$.event_data.properties.lastModifiedDate"
+  
+  # Resource Information
+  resource_id: "$.event_data.properties.resourceId"
+  resource_type: "$.event_data.properties.resourceType"
+  subscription_id: "$.event_data.properties.subscriptionId"
+  
+  # Compliance Standards (NIST, SOC, PCI, etc.)
+  standard_name: "$.event_data.properties.standard"
+  control_id: "$.event_data.properties.controlId"
+  control_name: "$.event_data.properties.controlName"
+  
+  # Assessment Details
+  severity: "$.event_data.properties.severity"
+  remediation_steps: "$.event_data.properties.remediation"
+  
+  # Metadata
+  assessment_type: "$.event_data.type"
+  assessment_category: "$.event_data.properties.category"
+
+# ASFF template for Azure Compliance Assessment
+template: |
+  {
+    "SchemaVersion": "2018-10-08",
+    "Id": "{{ extractors.assessment_id | default(generate_uuid()) }}",
+    "ProductArn": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default",
+    "ProductName": "{{ config.asff_product_name | default('Microsoft Defender for Cloud - Compliance') }}",
+    "CompanyName": "Microsoft",
+    "GeneratorId": "azure-compliance-assessment",
+    "AwsAccountId": "{{ aws_account_id }}",
+    "Types": ["Software and Configuration Checks/Industry and Regulatory Standards"],
+    "FirstObservedAt": "{{ extractors.time_generated | normalize_timestamp }}",
+    "CreatedAt": "{{ extractors.time_generated | normalize_timestamp }}",
+    "UpdatedAt": "{{ extractors.last_modified_date | default(extractors.time_generated) | normalize_timestamp }}",
+    "Severity": {
+      "Label": "{{ extractors.severity | asff_severity_label }}",
+      "Normalized": {{ extractors.severity | asff_severity_normalized }}
+    },
+    "Title": "{{ extractors.assessment_name | default_if_invalid(extractors.assessment_description | truncate(100)) | default_if_invalid('Azure Compliance Assessment') | replace('\\', '\\\\') | replace('"', '\\"') }}",
+    "Description": "{{ extractors.assessment_description | default_if_invalid('Compliance assessment for Azure resources') | replace('\\', '\\\\') | replace('"', '\\"') | replace('\n', ' ') | truncate(1024) }}",
+    "ProductFields": {
+      {% if extractors.standard_name | is_valid %}"azure/complianceStandard": "{{ extractors.standard_name }}",{% endif %}
+      {% if extractors.subscription_id | is_valid %}"azure/subscriptionId": "{{ extractors.subscription_id }}",{% endif %}
+      {% if extractors.compliance_state | is_valid %}"azure/state": "{{ extractors.compliance_state }}",{% endif %}
+      {% if extractors.control_id | is_valid %}"azure/controlId": "{{ extractors.control_id }}",{% endif %}
+      "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Microsoft Defender for Cloud - Compliance') }}",
+      "aws/securityhub/CompanyName": "Microsoft"
+    },
+    "Compliance": {
+      "Status": "{{ extractors.compliance_state | compliance_status }}",
+      {% if extractors.standard_name | is_valid or extractors.control_id | is_valid %}"RelatedRequirements": [
+        {% if extractors.control_id | is_valid %}"{{ extractors.control_id }}"{% if extractors.standard_name | is_valid %},{% endif %}{% endif %}
+        {% if extractors.standard_name | is_valid %}"{{ extractors.standard_name }}"{% endif %}
+      ],{% endif %}
+      {% if extractors.control_id | is_valid %}"SecurityControlId": "{{ extractors.control_id }}",{% endif %}
+      {% if extractors.standard_name | is_valid %}"AssociatedStandards": [{
+        "StandardsId": "standards/{{ extractors.standard_name | lower | replace(' ', '-') }}"
+      }],{% endif %}
+      "StatusReasons": [{
+        "ReasonCode": "{{ extractors.compliance_state | compliance_reason_code }}",
+        "Description": "{{ extractors.assessment_description | default_if_invalid(extractors.assessment_name) | default_if_invalid('Compliance assessment') | replace('"', '\\"') | replace('\n', ' ') | truncate(256) }}"
+      }]
+    },
+    "Remediation": {
+      "Recommendation": {
+        "Text": "{{ extractors.remediation_steps | default_if_invalid('Review Azure compliance recommendations in the Azure Portal') | replace('"', '\\"') | replace('\n', ' ') | truncate(512) }}",
+        "Url": "https://portal.azure.com/#blade/Microsoft_Azure_Policy/PolicyMenuBlade/Compliance"
+      }
+    },
+    "Resources": [{
+      "Type": "{% if extractors.resource_type | is_valid %}{{ extractors.resource_type }}{% else %}AwsAccount{% endif %}",
+      "Id": "{{ extractors.resource_id | default_if_invalid('arn:aws:iam::' + aws_account_id + ':root') }}",
+      "Partition": "aws",
+      "Region": "{{ aws_region }}"
+    }],
+    "WorkflowState": "NEW",
+    "RecordState": "{{ extractors.compliance_state | asff_record_state }}"
+  }

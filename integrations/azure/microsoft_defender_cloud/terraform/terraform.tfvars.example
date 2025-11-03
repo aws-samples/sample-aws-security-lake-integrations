@@ -1,0 +1,252 @@
+/**
+ * Microsoft Defender for Cloud - Event Hub Integration
+ * Terraform Variables Example File
+ * 
+ * Copy this file to `terraform.tfvars` and customize the values for your deployment.
+ * 
+ * Author: SecureSight Team
+ * Version: 1.0.0
+ */
+
+# ============================================================================
+# GENERAL CONFIGURATION
+# ============================================================================
+
+# Project identification and naming
+project_name = "mdc-integration"
+environment  = "prod"
+owner        = "SecureSight-Team"
+cost_center  = "Security-Operations"
+
+# Additional custom tags for all resources
+additional_tags = {
+  Department   = "Security"
+  Application  = "Microsoft-Defender-Integration"
+  Compliance   = "SOC2"
+  DataClass    = "Confidential"
+}
+
+# ============================================================================
+# REGION AND DEPLOYMENT CONFIGURATION
+# ============================================================================
+
+# Single region deployment (default)
+primary_region           = "East US"
+multi_region_deployment  = false
+
+# Multi-region deployment (uncomment and modify for multi-region)
+# multi_region_deployment = true
+# deployment_regions = [
+#   "East US",
+#   "West US 2",
+#   "Central US"
+# ]
+
+# ============================================================================
+# EVENT HUB NAMESPACE CONFIGURATION
+# ============================================================================
+
+# Event Hub Namespace SKU and capacity
+eventhub_sku      = "Standard"
+eventhub_capacity = 5
+
+# Auto-scaling configuration
+auto_inflate_enabled     = true
+maximum_throughput_units = 15
+
+# Network access configuration
+public_network_access_enabled = true
+minimum_tls_version           = "1.2"
+
+# Network access rules (optional - uncomment to restrict access)
+# network_rulesets = {
+#   default_action                 = "Deny"
+#   trusted_service_access_enabled = true
+#   ip_rules = [
+#     "203.0.113.0/24",  # Your office IP range
+#   ]
+#   virtual_network_rules = []
+# }
+
+# ============================================================================
+# MICROSOFT DEFENDER CONTINUOUS EXPORT CONFIGURATION
+# ============================================================================
+
+# Enable automatic continuous export from Microsoft Defender to Event Hub
+# When enabled, also creates RBAC role for 'Windows Azure Security Resource Provider'
+enable_defender_export = true
+
+# ============================================================================
+# EVENT HUB CONFIGURATION
+# ============================================================================
+
+# Event Hub settings
+eventhub_name             = "defender-security-events"
+eventhub_partition_count  = 8
+eventhub_message_retention = 3
+
+# ============================================================================
+# RESOURCE PROTECTION
+# ============================================================================
+
+# Resource group deletion protection
+prevent_resource_group_deletion = true
+
+# ============================================================================
+# EXAMPLE CONFIGURATIONS FOR DIFFERENT SCENARIOS
+# ============================================================================
+
+# --- DEVELOPMENT ENVIRONMENT ---
+# Uncomment and modify for development deployments
+# project_name = "mdc-integration-dev"
+# environment  = "dev"
+# eventhub_sku = "Basic"
+# eventhub_capacity = 1
+# auto_inflate_enabled = false
+# eventhub_message_retention = 1
+# prevent_resource_group_deletion = false
+# enable_defender_export = true    # Enable for testing Defender integration
+# enable_nsg_flowlogs = true       # Enable for NSG flow logs (requires feature registration!)
+# nsg_ids = ["/subscriptions/{sub-id}/resourceGroups/{rg}/providers/Microsoft.Network/networkSecurityGroups/dev-nsg"]
+
+# --- HIGH AVAILABILITY PRODUCTION ---
+# Uncomment and modify for HA production deployments
+# project_name = "mdc-integration-prod"
+# environment  = "prod"
+# eventhub_sku = "Premium"
+# eventhub_capacity = 10
+# maximum_throughput_units = 20
+# multi_region_deployment = true
+# deployment_regions = ["East US", "West US 2", "Central US"]
+
+# --- SECURITY-HARDENED DEPLOYMENT ---
+# Uncomment and modify for security-hardened deployments
+# public_network_access_enabled = false
+# minimum_tls_version = "1.2"
+# network_rulesets = {
+#   default_action                 = "Deny"
+#   trusted_service_access_enabled = true
+#   ip_rules = ["your-office-ip-range/24"]
+#   virtual_network_rules = []
+# }
+
+# ============================================================================
+# VNET FLOW LOGS CONFIGURATION
+# ============================================================================
+
+# Enable VNet Flow Logs (requires Network Watcher and proper permissions)
+enable_vnet_flowlogs = false
+
+# List of VNet or Subnet resource IDs to monitor
+# Format: /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet-name}
+# Or: /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/virtualNetworks/{vnet}/subnets/{subnet}
+vnet_ids = []
+# Example:
+# vnet_ids = [
+#   "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet"
+# ]
+
+# Storage account configuration for flow log data
+# Leave null to auto-generate name
+flow_logs_storage_account_name = null
+flow_logs_storage_account_tier = "Standard"
+flow_logs_storage_account_replication = "LRS"
+
+# Flow log retention settings
+flow_logs_retention_enabled = true
+flow_logs_retention_days    = 7
+
+# Flow log version (1 or 2, recommend 2 for more details)
+flow_log_version = 2
+
+# Enable Traffic Analytics (requires Log Analytics workspace - not configured in this example)
+enable_traffic_analytics = false
+traffic_analytics_interval = 60
+
+# Export flow logs to Event Hub for centralized collection
+enable_flowlogs_to_eventhub = true
+
+# ============================================================================
+# VNET FLOW LOGS EXAMPLE CONFIGURATIONS
+# ============================================================================
+
+# --- DEVELOPMENT ENVIRONMENT ---
+# enable_vnet_flowlogs = true
+# vnet_ids = ["/subscriptions/{sub}/resourceGroups/dev-rg/providers/Microsoft.Network/virtualNetworks/dev-vnet"]
+# flow_logs_retention_days = 3
+# enable_flowlogs_to_eventhub = true
+
+# --- PRODUCTION ENVIRONMENT WITH MULTIPLE VNETS ---
+# enable_vnet_flowlogs = true
+# vnet_ids = [
+#   "/subscriptions/{sub}/resourceGroups/prod-rg/providers/Microsoft.Network/virtualNetworks/prod-vnet-1",
+#   "/subscriptions/{sub}/resourceGroups/prod-rg/providers/Microsoft.Network/virtualNetworks/prod-vnet-2"
+# ]
+# flow_logs_storage_account_tier = "Standard"
+# flow_logs_storage_account_replication = "GRS"
+# flow_logs_retention_days = 30
+# flow_log_version = 2
+# enable_flowlogs_to_eventhub = true
+
+# ============================================================================
+# ENTRA ID DIAGNOSTICS CONFIGURATION
+# ============================================================================
+
+# Enable Entra ID (Azure Active Directory) diagnostic logging to Event Hub
+# Streams all 15 Entra ID log categories including:
+# - AuditLogs: Directory changes and administrative actions
+# - SignInLogs: Interactive user authentication events
+# - ServicePrincipalSignInLogs: Application authentication
+# - RiskyUsers/UserRiskEvents: Identity Protection alerts
+# - And 10 additional security and compliance log categories
+enable_entra_id_logging = true
+
+# Log retention period in Event Hub (0 = infinite)
+# Recommended: 7 days for cost efficiency
+entra_id_log_retention_days = 7
+
+# Optional: Enable storage account for long-term log retention
+# Set to true if you need to retain Entra ID logs beyond Event Hub retention
+# Note: Additional storage costs apply
+entra_id_enable_storage_retention = false
+
+# Optional: Custom storage account name for Entra ID logs
+# Leave null for auto-generated name
+# Must be globally unique, lowercase, alphanumeric only (3-24 chars)
+entra_id_storage_account_name = null
+
+# ============================================================================
+# ENTRA ID LOGGING EXAMPLE CONFIGURATIONS
+# ============================================================================
+
+# --- COMPLIANCE-FOCUSED DEPLOYMENT ---
+# enable_entra_id_logging = true
+# entra_id_log_retention_days = 0  # Infinite retention in Event Hub
+# entra_id_enable_storage_retention = true
+# entra_id_storage_account_name = "entraidlogs123456"
+
+# --- COST-OPTIMIZED DEPLOYMENT ---
+# enable_entra_id_logging = true
+# entra_id_log_retention_days = 3  # Minimal retention
+# entra_id_enable_storage_retention = false
+
+# ============================================================================
+# NOTES AND RECOMMENDATIONS
+# ============================================================================
+
+# PERFORMANCE RECOMMENDATIONS:
+# - For high-volume environments (>1000 events/sec), use Standard or Premium SKU
+# - Set partition_count to 2x the number of expected concurrent consumers
+# - Enable auto_inflate_enabled for variable workloads
+# - Use Premium SKU for guaranteed performance and larger message sizes
+
+# SECURITY RECOMMENDATIONS:
+# - Always use minimum_tls_version = "1.2" or higher
+# - Restrict network access using network_rulesets when possible
+# - Microsoft Defender RBAC permissions are automatically configured
+
+# COST OPTIMIZATION:
+# - Use Basic SKU for development/testing environments
+# - Set appropriate message_retention based on your requirements (1 day recommended)
+# - Monitor throughput units usage and adjust capacity accordingly
+# - Consider multi-region deployment costs vs. availability requirements

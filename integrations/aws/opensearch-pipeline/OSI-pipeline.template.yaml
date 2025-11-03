@@ -1,0 +1,162 @@
+# OpenSearch Ingestion Pipeline Configuration Template
+# 
+# This template configures an OSI pipeline to ingest OCSF-formatted data
+# from AWS Security Lake into OpenSearch for analysis and visualization.
+#
+# INSTRUCTIONS:
+# 1. Copy this file: cp OSI-pipeline.template.yaml my-pipeline-config.yaml
+# 2. Replace all <PLACEHOLDER> values with your actual configuration
+# 3. Deploy using AWS Console or CLI
+#
+# REQUIRED PARAMETERS:
+# - <AWS_REGION>: Your AWS region (e.g., us-east-1, ca-central-1)
+# - <AWS_ACCOUNT_ID>: Your 12-digit AWS account ID
+# - <SQS_QUEUE_NAME>: Name of your Security Lake SQS queue
+# - <IAM_ROLE_NAME>: Name of your OpenSearch Ingestion service role
+# - <OPENSEARCH_ENDPOINT>: Full HTTPS URL of your OpenSearch domain
+# - <PIPELINE_NAME>: Descriptive name for this pipeline (used in source section identifier)
+#
+# OPTIONAL TUNING PARAMETERS:
+# - workers: Number of parallel workers (default: 2, increase for high volume)
+# - visibility_timeout: SQS message visibility timeout (default: 600s)
+# - serverless: Set to true for OpenSearch Serverless (default: false)
+
+version: "2"
+extension: {}
+
+# Source Configuration - Replace <PIPELINE_NAME> with a unique identifier
+<PIPELINE_NAME>:
+  source:
+    s3:
+      # Acknowledgments ensure messages are only deleted after successful processing
+      acknowledgments: true
+      
+      # SQS Configuration - Security Lake event notifications
+      sqs:
+        # Replace with your Security Lake SQS queue URL
+        # Format: https://sqs.<AWS_REGION>.amazonaws.com/<AWS_ACCOUNT_ID>/<SQS_QUEUE_NAME>
+        queue_url: >-
+          https://sqs.<AWS_REGION>.amazonaws.com/<AWS_ACCOUNT_ID>/<SQS_QUEUE_NAME>
+        
+        # Time before message becomes visible again if not processed (10 minutes default)
+        # Increase for large files or slow processing
+        visibility_timeout: 600s
+        
+        # Prevents duplicate processing of the same S3 object
+        visibility_duplication_protection: true
+      
+      # AWS Configuration
+      aws:
+        # Region where your Security Lake and SQS queue reside
+        region: <AWS_REGION>
+        
+        # IAM role ARN for OpenSearch Ingestion to assume
+        # Format: arn:aws:iam::<AWS_ACCOUNT_ID>:role/<IAM_ROLE_NAME>
+        sts_role_arn: "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<IAM_ROLE_NAME>"
+      
+      # Notification Configuration - Security Lake uses EventBridge → SQS
+      notification_type: sqs
+      notification_source: eventbridge
+      
+      # Data Format - Security Lake stores data in Parquet format with gzip compression
+      codec:
+        parquet: null
+      compression: "gzip"
+      
+      # Number of parallel workers for processing S3 objects
+      # Increase for higher throughput (consumes more OCUs)
+      workers: "2"
+  
+  # Processing Pipeline - Transforms and enriches OCSF data
+  processor:
+    # Normalize product names and class names to lowercase for consistency
+    - lowercase_string:
+        with_keys: ["/metadata/product/name", "/class_name"]
+    
+    # Remove whitespace from cloud provider field
+    - trim_string:
+        with_keys: ["/cloud/provider"]
+    
+    # Extract cloud metadata from AWS WAF resource ARNs
+    # Pattern: arn:partition:service:region:account:resource
+    - grok:
+        grok_when: '/class_uid == 4002 and /metadata/product/name == "AWS WAF"'
+        match:
+          /metadata/product/feature/uid:
+            [
+              "%{DATA}:%{DATA}:%{DATA}:%{DATA:/cloud/region}:%{DATA:/cloud/account/uid}:%{GREEDYDATA}",
+            ]
+    
+    # Copy account ID from CloudTrail unmapped fields to standard location
+    - add_entries:
+        entries:
+          - key: "/cloud/account/uid"
+            value_expression: "/unmapped/recipientAccountId"
+            add_when: '/metadata/product/name == "CloudTrail"'
+    
+    # Remove cloud account field for EKS events (will be re-extracted from S3 key)
+    - delete_entries:
+        with_keys: ["/cloud/account"]
+        delete_when: '/metadata/product/name == "Amazon EKS"'
+    
+    # Extract cloud metadata from EKS S3 key paths
+    # Pattern: prefix/year/month/region=value/accountId=value/rest
+    - grok:
+        grok_when: '/class_uid == 6003 and /metadata/product/name == "Amazon EKS"'
+        match:
+          /s3/key:
+            [
+              "%{DATA}/%{DATA}/%{DATA}/%{DATA}=%{DATA:/cloud/region}/%{DATA}=%{DATA:/cloud/account/uid}/%{DATA}/%{GREEDYDATA}",
+            ]
+    
+    # Clean up temporary fields no longer needed
+    - delete_entries:
+        with_keys: ["uid", "s3"]
+    
+    # Normalize class name to lowercase
+    - lowercase_string:
+        with_keys: ["/class_name"]
+    
+    # String substitutions for data cleanup
+    - substitute_string:
+        entries:
+          # Replace spaces with underscores in class names for valid index names
+          - source: "/class_name"
+            from: "\\s"
+            to: "_"
+          # Replace hyphen placeholder with default IP address
+          - source: "/src_endpoint/ip"
+            from: "-"
+            to: "0.0.0.0"
+          - source: "/dst_endpoint/ip"
+            from: "-"
+            to: "0.0.0.0"
+  
+  # Sink Configuration - Destination OpenSearch cluster
+  sink:
+    - opensearch:
+        # OpenSearch endpoint(s)
+        # Replace with your OpenSearch domain endpoint
+        # Format: https://<domain-name>.<region>.es.amazonaws.com
+        # For Serverless: https://<collection-id>.<region>.aoss.amazonaws.com
+        hosts:
+          - >-
+            <OPENSEARCH_ENDPOINT>
+        
+        # AWS Configuration for OpenSearch
+        aws:
+          # Set to true for OpenSearch Serverless, false for managed domains
+          serverless: false
+          
+          # Region where your OpenSearch domain is deployed
+          region: <AWS_REGION>
+        
+        # Index Configuration - Dynamic naming based on OCSF class
+        index_type: custom
+        
+        # Index name pattern using OCSF class_uid and class_name
+        # Creates separate indices for each event type:
+        # - ocsf-1.1.0-2001-compliance_finding
+        # - ocsf-1.1.0-4002-http_activity
+        # - ocsf-1.1.0-6003-api_activity
+        index: "ocsf-1.1.0-${/class_uid}-${/class_name}"

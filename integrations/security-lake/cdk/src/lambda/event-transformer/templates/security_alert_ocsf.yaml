@@ -1,0 +1,188 @@
+name: "security_alert_to_ocsf_detection_finding_compliant"
+input_schema: "azure_security_alert"
+output_schema: "ocsf_detection_finding_v170"
+
+# JSONPath expressions to extract data from Azure security alert events
+extractors:
+  # Core Alert Fields
+  alert_id: "$.event_data.SystemAlertId"
+  alert_title: "$.event_data.AlertDisplayName"
+  alert_type: "$.event_data.AlertType"
+  description: "$.event_data.Description"
+  severity: "$.event_data.Severity"
+  status: "$.event_data.Status"
+  
+  # Timestamps
+  time_generated: "$.event_data.TimeGenerated"
+  start_time_utc: "$.event_data.StartTimeUtc"
+  end_time_utc: "$.event_data.EndTimeUtc"
+  processing_end_time: "$.event_data.ProcessingEndTime"
+  
+  # Azure Resource Information
+  azure_resource_id: "$.event_data.AzureResourceId"
+  compromised_entity: "$.event_data.CompromisedEntity"
+  resource_identifiers: "$.event_data.ResourceIdentifiers"
+  
+  # MITRE ATT&CK Information
+  intent: "$.event_data.Intent"
+  
+  # Entities and Evidence
+  entities: "$.event_data.Entities"
+  extended_properties: "$.event_data.ExtendedProperties"
+  remediation_steps: "$.event_data.RemediationSteps"
+  alert_uri: "$.event_data.AlertUri"
+  
+  # Confidence and Risk
+  confidence_score: "$.event_data.ConfidenceScore"
+  confidence_level: "$.event_data.ConfidenceLevel"
+  is_incident: "$.event_data.IsIncident"
+  
+  # Product Information
+  vendor_name: "$.event_data.VendorName"
+  product_name: "$.event_data.ProductName"
+  product_component: "$.event_data.ExtendedProperties.ProductComponentName"
+  
+  # Processing Metadata
+  processing_source: "$.processing_metadata.source"
+  processor_version: "$.processing_metadata.processor_version"
+  processed_timestamp: "$.processing_metadata.processed_timestamp"
+
+# OCSF v1.1.0-dev compliant template for Detection Finding
+template: |
+  {
+    "version": "1.1.0",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "time": {{ extractors.time_generated | to_unix_timestamp_ms }}{% set time_fields = [] %}{% if extractors.start_time_utc %}{% set _ = time_fields.append('"start_time": ' + (extractors.start_time_utc | to_unix_timestamp_ms | string)) %}{% endif %}{% if extractors.end_time_utc %}{% set _ = time_fields.append('"end_time": ' + (extractors.end_time_utc | to_unix_timestamp_ms | string)) %}{% endif %}{% if time_fields %},
+    {{ time_fields | join(',\n    ') }}{% endif %},
+    "severity_id": {{ extractors.severity | map_azure_severity_to_ocsf }},
+    "severity": "{{ extractors.severity | format_severity }}"{% if extractors.confidence_score %},
+    "confidence_score": {{ extractors.confidence_score | int }}{% endif %}{% if extractors.confidence_level %},
+    "confidence": "{{ extractors.confidence_level }}",
+    "confidence_id": {{ extractors.confidence_level | map_confidence_level }}{% endif %},
+    "status": "{{ extractors.status | default('New') }}",
+    "status_id": {{ extractors.status | map_alert_status }},
+    "is_alert": true,
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.resource_identifiers | extract_azure_subscription }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      }{% set tenant_id = extractors.resource_identifiers | extract_azure_tenant %}{% if tenant_id %},
+      "org": {
+        "uid": "{{ tenant_id }}"
+      }{% endif %},
+      "region": "{{ extractors.azure_resource_id | extract_azure_region }}"
+    },
+    "finding_info": {
+      "uid": "{{ extractors.alert_id }}",
+      "title": "{{ extractors.alert_title | default('Azure Security Alert') | json_escape }}",
+      "desc": "{{ extractors.description | default('') | json_escape | truncate(1000) }}"{% if extractors.alert_uri %},
+      "src_url": "{{ extractors.alert_uri }}"{% endif %},
+      "types": ["{{ extractors.alert_type }}"],
+      "created_time": {{ extractors.time_generated | to_unix_timestamp_ms }}{% if extractors.processing_end_time %},
+      "modified_time": {{ extractors.processing_end_time | to_unix_timestamp_ms }}{% endif %},
+      "product": {
+        "name": "{{ extractors.product_name | default('Microsoft Defender for Cloud') }}",
+        "vendor_name": "{{ extractors.vendor_name | default('Microsoft') }}",
+        "version": "1.0"
+      }
+    }{% if extractors.intent %},
+    "attacks": [
+      {% set attack_tactics = extractors.intent.split(', ') %}
+      {% for tactic in attack_tactics %}
+      {
+        "tactic": {
+          "name": "{{ tactic }}",
+          "uid": "{{ tactic | map_mitre_tactic }}"
+        }
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ]{% endif %}{% if extractors.entities %},
+    "observables": [
+      {% set valid_observables = [] %}
+      {% for entity in extractors.entities %}
+        {% if entity.Type == 'ip' and entity.SourceAddress and entity.SourceAddress.Address %}
+          {% set _ = valid_observables.append({'type_id': 2, 'type': 'IP Address', 'value': entity.SourceAddress.Address}) %}
+        {% elif entity.Type == 'account' and entity.Name %}
+          {% set _ = valid_observables.append({'type_id': 21, 'type': 'User Name', 'value': entity.Name}) %}
+        {% elif entity.Type == 'azure-resource' and entity.ResourceId %}
+          {% set _ = valid_observables.append({'type_id': 10, 'type': 'Resource UID', 'value': entity.ResourceId}) %}
+        {% endif %}
+      {% endfor %}
+      {% for observable in valid_observables %}
+      {
+        "type_id": {{ observable.type_id }},
+        "type": "{{ observable.type }}",
+        "value": "{{ observable.value }}"
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ]{% endif %}{% if extractors.azure_resource_id or extractors.compromised_entity %},
+    "resources": [
+      {
+        "uid": "{{ extractors.azure_resource_id or extractors.compromised_entity }}",
+        "name": "{{ extractors.compromised_entity | extract_resource_name }}",
+        "type": "{{ extractors.azure_resource_id | extract_azure_resource_type }}",
+        "cloud_partition": "azure-commercial",
+        "region": "{{ extractors.azure_resource_id | extract_azure_region }}",
+        "role_id": 3,
+        "role": "Affected"
+      }
+    ]{% endif %}{% if extractors.remediation_steps %},
+    "remediation": {
+      "desc": "{{ extractors.remediation_steps | join(' ') | json_escape | truncate(500) }}"
+    }{% endif %},
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "{{ extractors.product_name | default('Microsoft Defender for Cloud') }}",
+        "vendor_name": "{{ extractors.vendor_name | default('Microsoft') }}",
+        "version": "1.0"
+      },
+      "profiles": ["security_control"],
+      "event_code": "{{ extractors.alert_type }}"{% if extractors.processed_timestamp %},
+      "logged_time": {{ extractors.processed_timestamp | to_unix_timestamp_ms }}{% endif %},
+      "original_time": {{ extractors.time_generated | to_unix_timestamp_ms }}
+    },
+    "raw_data": {{ azure_event | to_json }}
+  }
+
+# Additional filters for OCSF compliance
+filters:
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00' if 'T' in timestamp_str else timestamp_str)
+            return int(dt.timestamp() * 1000)
+        except:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  extract_azure_tenant: |
+    def extract_azure_tenant(resource_identifiers):
+        if isinstance(resource_identifiers, list):
+            for resource in resource_identifiers:
+                if isinstance(resource, dict) and resource.get('Type') == 'AAD':
+                    return resource.get('AadTenantId', '')
+        return ''
+  
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped

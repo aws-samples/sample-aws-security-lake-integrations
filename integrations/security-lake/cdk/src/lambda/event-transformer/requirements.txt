@@ -1,0 +1,17 @@
+# AWS SDK for Python (Boto3) - usually included in Lambda runtime
+# but explicitly including for local development and testing
+# boto3>=1.28.0
+# botocore>=1.31.0
+
+# Additional utility libraries for event processing
+python-dateutil>=2.8.2
+
+# Template-driven transformation libraries
+jsonpath-ng>=1.6.1
+Jinja2>=3.1.2
+PyYAML>=6.0.1
+
+# Parquet support for Security Lake compliance
+# Using PyArrow with proper array handling
+pyarrow>=15.0.0,<21.0.0
+numpy>=1.24.0,<2.0.0

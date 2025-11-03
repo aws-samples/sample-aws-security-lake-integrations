@@ -1,0 +1,17 @@
+
+>> Running Event Hub Processor Local Test...
+Using environment variables from: arn:aws:lambda:ca-central-1:061849379246:function:mdc-cloudtrail-integratio-EventHubProcessor4BDAC6C-IjnWq27ddXW1
+Data source: real Azure Event Hub
+
+>> Event Hub Processor local test completed!
+Status Code: 200
+
+>> Processing Summary (using deployed resources):
+   Events Received: 9
+   Events Sent to SQS: 9
+   Cursor Updated: False
+   Processing Time: 36171 ms
+   Status: completed_successfully
+
+>> This test used the actual deployed DynamoDB table and SQS queue!
+>> And connected to real Azure Event Hub for authentic data!

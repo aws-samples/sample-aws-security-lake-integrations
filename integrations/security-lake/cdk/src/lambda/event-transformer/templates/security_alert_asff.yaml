@@ -1,0 +1,93 @@
+name: "security_alert_to_asff"
+input_schema: "azure_security_alert"
+output_schema: "asff_finding"
+
+# JSONPath extractors for Azure Security Alert fields
+extractors:
+  # Core Alert Fields
+  alert_id: "$.event_data.SystemAlertId"
+  alert_title: "$.event_data.AlertDisplayName"
+  alert_type: "$.event_data.AlertType"
+  severity: "$.event_data.Severity"
+  description: "$.event_data.Description"
+  
+  # Timestamps
+  time_generated: "$.event_data.TimeGenerated"
+  processing_time: "$.event_data.ProcessingEndTime"
+  start_time: "$.event_data.StartTimeUtc"
+  end_time: "$.event_data.EndTimeUtc"
+  
+  # Azure Resource Information
+  resource_id: "$.event_data.AzureResourceId"
+  compromised_entity: "$.event_data.CompromisedEntity"
+  resource_identifiers: "$.event_data.ResourceIdentifiers"
+  
+  # Threat Information
+  intent: "$.event_data.Intent"
+  tactics: "$.event_data.ExtendedProperties.Tactics"
+  techniques: "$.event_data.ExtendedProperties.Techniques"
+  
+  # Security Context
+  entities: "$.event_data.Entities"
+  remediation_steps: "$.event_data.RemediationSteps"
+  extended_properties: "$.event_data.ExtendedProperties"
+  alert_uri: "$.event_data.AlertUri"
+  
+  # Metadata
+  subscription_id: "$.event_data.SubscriptionId"
+  resource_group: "$.event_data.ResourceGroup"
+  status: "$.event_data.Status"
+
+# ASFF-compliant template for AWS Security Hub
+template: |
+  {
+    "SchemaVersion": "2018-10-08",
+    "Id": "{{ extractors.alert_id | default(generate_uuid()) }}",
+    "ProductArn": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default",
+    "ProductName": "Microsoft Defender for Cloud",
+    "CompanyName": "Microsoft",
+    "GeneratorId": "azure-defender-{{ extractors.alert_type | default('security-alert') }}",
+    "AwsAccountId": "{{ aws_account_id }}",
+    "Types": {{ extractors.alert_type | to_asff_types }},
+    "CreatedAt": "{{ extractors.time_generated | normalize_timestamp }}",
+    "UpdatedAt": "{{ extractors.time_generated | add_one_second | normalize_timestamp }}",
+    "Severity": {
+      "Label": "{{ extractors.severity | asff_severity_label }}",
+      "Normalized": {{ extractors.severity | asff_severity_normalized }}
+    },
+    "Title": "{{ extractors.alert_title | default('Azure Security Alert') | truncate(200) }}",
+    "Description": "{{ extractors.description | default('No description available') | truncate(1024) }}",
+    "Remediation": {
+      "Recommendation": {
+        "Text": "{{ extractors.remediation_steps | default([]) | join(' ') | truncate(400) }}",
+        "Url": "{{ extractors.alert_uri | default('') }}"
+      }
+    },
+    "SourceUrl": "{{ extractors.alert_uri | default('') }}",
+    "ProductFields": {
+      "azure/alertType": "{{ extractors.alert_type | default('Unknown') }}",
+      "azure/subscriptionId": "{{ extractors.subscription_id | default('Unknown') }}",
+      "azure/resourceGroup": "{{ extractors.resource_group | default('Unknown') }}",
+      "azure/status": "{{ extractors.status | default('New') }}",
+      "aws/securityhub/FindingId": "{{ extractors.alert_id }}",
+      "aws/securityhub/ProductName": "Microsoft Defender for Cloud",
+      "aws/securityhub/CompanyName": "Microsoft"
+    },
+    "Resources": [
+      {
+        "Type": "Other",
+        "Id": "{{ extractors.resource_id | default(extractors.compromised_entity) | default('Unknown') }}",
+        "Partition": "aws",
+        "Region": "{{ extractors.resource_id | extract_azure_region | default('unknown') }}",
+        "Details": {
+          "Other": {
+            "AzureResourceId": "{{ extractors.resource_id | default('') }}",
+            "CompromisedEntity": "{{ extractors.compromised_entity | default('') }}",
+            "ResourceType": "{{ extractors.resource_id | extract_azure_resource_type | default('Unknown') }}"
+          }
+        }
+      }
+    ],
+    "WorkflowState": "NEW",
+    "RecordState": "ACTIVE"
+  }

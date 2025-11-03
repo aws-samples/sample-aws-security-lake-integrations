@@ -1,0 +1,259 @@
+name: "microsoft_graph_activity_to_ocsf_api_activity"
+input_schema: "azure_microsoft_graph_activity"
+output_schema: "ocsf_api_activity_v110"
+
+# JSONPath extractors for Microsoft Graph Activity logs
+extractors:
+  # Core fields
+  time: "$.event_data.time"
+  operation_name: "$.event_data.operationName"
+  category: "$.event_data.category"
+  level: "$.event_data.level"
+  correlation_id: "$.event_data.correlationId"
+  resource_id: "$.event_data.resourceId"
+  tenant_id: "$.event_data.tenantId"
+  
+  # API Request details
+  request_method: "$.event_data.properties.requestMethod"
+  request_uri: "$.event_data.properties.requestUri"
+  api_version: "$.event_data.properties.apiVersion"
+  client_request_id: "$.event_data.properties.clientRequestId"
+  request_id: "$.event_data.properties.requestId"
+  operation_id: "$.event_data.properties.operationId"
+  
+  # Response details
+  response_status_code: "$.event_data.properties.responseStatusCode"
+  response_size_bytes: "$.event_data.properties.responseSizeBytes"
+  result_signature: "$.event_data.resultSignature"
+  duration_ms: "$.event_data.properties.durationMs"
+  
+  # Client/Actor details
+  caller_ip_address: "$.event_data.callerIpAddress"
+  ip_address: "$.event_data.properties.ipAddress"
+  user_agent: "$.event_data.properties.userAgent"
+  app_id: "$.event_data.properties.appId"
+  service_principal_id: "$.event_data.properties.servicePrincipalId"
+  user_principal_object_id: "$.event_data.properties.UserPrincipalObjectID"
+  
+  # Authentication context
+  identity_provider: "$.event_data.properties.identityProvider"
+  client_auth_method: "$.event_data.properties.clientAuthMethod"
+  token_issued_at: "$.event_data.properties.tokenIssuedAt"
+  sign_in_activity_id: "$.event_data.properties.signInActivityId"
+  
+  # Permissions
+  roles: "$.event_data.properties.roles"
+  scopes: "$.event_data.properties.scopes"
+  wids: "$.event_data.properties.wids"
+  
+  # Location
+  location: "$.event_data.location"
+  
+  # Metadata
+  operation_version: "$.event_data.operationVersion"
+
+# OCSF v1.1.0 API Activity template
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 6003,
+    "class_name": "API Activity",
+    "category_uid": 6,
+    "category_name": "Application Activity",
+    "activity_id": 1,
+    "activity_name": "{{ extractors.request_method | default('Unknown') }}",
+    "type_uid": 600301,
+    "type_name": "API Activity: Unknown",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": {{ extractors.level | map_level_to_severity_id }},
+    "severity": "{{ extractors.level | default('Informational') }}",
+    "status": "{{ extractors.response_status_code | map_http_status }}",
+    "status_id": {{ extractors.response_status_code | map_http_status_id }},
+    "status_code": "{{ extractors.response_status_code | default('200') }}",
+    "status_detail": "{{ extractors.result_signature | default('') }}",
+    "message": "Microsoft Graph API {{ extractors.request_method | default('') }} {{ extractors.request_uri | default('') }}",
+    "api": {
+      "operation": "{{ extractors.operation_name | default('Microsoft Graph Activity') }}",
+      "version": "{{ extractors.api_version | default('v1.0') }}",
+      "request": {
+        "uid": "{{ extractors.request_id | default(extractors.correlation_id) | default('unknown') }}",
+        "method": "{{ extractors.request_method | default('GET') }}"{% if extractors.request_uri %},
+        "url": {
+          "url_string": "{{ extractors.request_uri }}"
+        }{% endif %}
+      },
+      "response": {
+        "code": {{ extractors.response_status_code | default(200) | int }},
+        "message": "{{ extractors.result_signature | default('') }}",
+        "length": {{ extractors.response_size_bytes | default(0) | int }}
+      }
+    },
+    "actor": {
+      "idp": {
+        "name": "Microsoft Entra ID",
+        "uid": "{{ extractors.tenant_id | default('') }}"
+      }{% if extractors.app_id %},
+      "app": {
+        "uid": "{{ extractors.app_id }}",
+        "name": "{{ extractors.operation_name | default('Microsoft Graph Application') }}"
+      }{% endif %}{% if extractors.service_principal_id %},
+      "user": {
+        "uid": "{{ extractors.service_principal_id }}",
+        "type": "Service Principal",
+        "type_id": 3
+      }{% elif extractors.user_principal_object_id %},
+      "user": {
+        "uid": "{{ extractors.user_principal_object_id }}",
+        "type": "User",
+        "type_id": 1
+      }{% endif %}{% if extractors.sign_in_activity_id %},
+      "session": {
+        "uid": "{{ extractors.sign_in_activity_id }}"
+      }{% endif %}{% if extractors.roles or extractors.scopes %},
+      "authorizations": [
+        {% if extractors.roles %}
+        {
+          "decision": "Allow",
+          "policy": {
+            "name": "Application Roles",
+            "desc": "{{ extractors.roles | json_escape }}"
+          }
+        }{% if extractors.scopes %},{% endif %}
+        {% endif %}
+        {% if extractors.scopes %}
+        {
+          "decision": "Allow",
+          "policy": {
+            "name": "Delegated Scopes",
+            "desc": "{{ extractors.scopes | json_escape }}"
+          }
+        }
+        {% endif %}
+      ]{% endif %}
+    },{% if extractors.caller_ip_address or extractors.ip_address %}
+    "src_endpoint": {
+      {% if extractors.caller_ip_address | default(extractors.ip_address) | extract_ip | is_valid %}"ip": "{{ extractors.caller_ip_address | default(extractors.ip_address) | extract_ip }}",
+      {% endif %}"port": {{ (extractors.caller_ip_address | default(extractors.ip_address) | extract_port) | default(443) | int }},
+      "svc_name": "HTTPS"{% if extractors.location %},
+      "location": {
+        "desc": "{{ extractors.location }}"
+      }{% endif %}
+    },{% endif %}
+    "dst_endpoint": {
+      "url": {
+        "hostname": "graph.microsoft.com",
+        "url_string": "{{ extractors.request_uri | default('https://graph.microsoft.com') }}"
+      },
+      "svc_name": "Microsoft Graph API"
+    },
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.tenant_id | default('') }}",
+        "type": "Azure Tenant",
+        "type_id": 10
+      }{% if extractors.location %},
+      "region": "{{ extractors.location }}"{% endif %}
+    },
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Microsoft Graph",
+        "vendor_name": "Microsoft",
+        "version": "{{ extractors.api_version | default('v1.0') }}",
+        "feature": {
+          "name": "Microsoft Graph Activity Logs"
+        }
+      },
+      "profiles": ["cloud"],
+      "event_code": "{{ extractors.operation_name | default('MicrosoftGraphActivity') }}",
+      "correlation_uid": "{{ extractors.correlation_id | default('') }}",
+      "logged_time": {{ extractors.time | to_unix_timestamp_ms }}
+    },{% if extractors.duration_ms %}
+    "duration": {{ extractors.duration_ms }},{% endif %}
+    "http_request": {
+      "version": "HTTP/1.1",
+      "url": {
+        "url_string": "{{ extractors.request_uri | default('') }}"
+      },
+      "http_method": "{{ extractors.request_method | default('GET') }}",
+      "user_agent": "{{ extractors.user_agent | default('') }}"
+    },
+    "http_response": {
+      "code": {{ extractors.response_status_code | default(200) | int }},
+      "message": "{{ extractors.result_signature | default('') }}",
+      "length": {{ extractors.response_size_bytes | default(0) | int }}
+    },
+    "unmapped": {
+      "client_auth_method": "{{ extractors.client_auth_method | default('') }}",
+      "wids": "{{ extractors.wids | default('') }}",
+      "token_issued_at": "{{ extractors.token_issued_at | default('') }}"
+    }
+  }
+
+# Custom filters for Microsoft Graph Activity
+filters:
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  map_level_to_severity_id: |
+    def map_level_to_severity_id(level):
+        level_map = {
+            'Critical': 5,
+            'Error': 4,
+            'Warning': 3,
+            'Informational': 1,
+            'Verbose': 1
+        }
+        return level_map.get(str(level), 1)
+  
+  map_http_status: |
+    def map_http_status(status_code):
+        try:
+            code = int(status_code)
+            if code < 300:
+                return 'Success'
+            elif code < 400:
+                return 'Redirect'
+            elif code < 500:
+                return 'Client Error'
+            else:
+                return 'Server Error'
+        except Exception:
+            return 'Unknown'
+  
+  map_http_status_id: |
+    def map_http_status_id(status_code):
+        try:
+            code = int(status_code)
+            if code < 300:
+                return 1  # Success
+            elif code < 400:
+                return 2  # Redirect
+            elif code < 500:
+                return 3  # Client Error
+            else:
+                return 4  # Server Error
+        except Exception:
+            return 99  # Unknown
+  
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped

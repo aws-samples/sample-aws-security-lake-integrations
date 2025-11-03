@@ -1,0 +1,284 @@
+# Security Lake Integration Framework - Example Configuration
+# Version 2.0.0
+
+# ============================================================================
+# PROJECT CONFIGURATION
+# ============================================================================
+
+projectName: security-lake-integration
+environment: dev  # dev, staging, prod
+awsRegion: ca-central-1
+accountId: ''  # Optional, auto-detected if empty
+
+# ============================================================================
+# RESOURCE TAGGING
+# ============================================================================
+
+tagSource: ProServe Delivery Kit
+tagProduct: Security-Lake-Integration-Framework
+tagKitVersion: 2.0.0
+
+tags:
+  - key: Project
+    value: Security-Lake-Integration
+  - key: Environment
+    value: dev
+  - key: Owner
+    value: Security-Team
+  - key: ManagedBy
+    value: CDK
+  - key: Framework
+    value: Modular
+
+# ============================================================================
+# ENCRYPTION CONFIGURATION
+# ============================================================================
+
+encryption:
+  enabled: true
+  keyType: CUSTOMER_MANAGED_CMK  # AWS_OWNED_CMK, CUSTOMER_MANAGED_CMK
+  keyAlias: security-lake-integration
+  keyDescription: Shared KMS key for Security Lake integration framework
+  keyRotationEnabled: true
+  keyPendingWindowInDays: 30
+
+# ============================================================================
+# SECURITY LAKE CONFIGURATION
+# ============================================================================
+
+securityLake:
+  enabled: true
+  s3Bucket: aws-security-data-lake-ca-central-1-REPLACE_WITH_YOUR_BUCKET_HASH
+  externalId: REPLACE_WITH_SECURE_RANDOM_STRING
+  serviceRole: SecurityLakeGlueCrawler
+  OCSFEventClass:
+    - sourceName: unifiedSecurityEvents
+      sourceVersion: '1.0'
+      eventClasses:
+        - SECURITY_FINDING
+        - VULNERABILITY_FINDING
+        - COMPLIANCE_FINDING
+
+# ============================================================================
+# CORE PROCESSING CONFIGURATION
+# ============================================================================
+
+coreProcessing:
+  eventTransformer:
+    enabled: true
+    functionName: event-transformer
+    runtime: python3.13
+    memorySize: 512
+    timeout: 60
+    reservedConcurrentExecutions: 10
+    batchSize: 10
+    maximumBatchingWindowInSeconds: 5
+    # Enable CloudTrail Event Data Store integration for the event transformer
+    # Set to true if you want to send events to CloudTrail Event Data Store
+    # Note: Requires cloudTrailEventDataStore.enabled to be true to create resources
+    eventDataStoreEnabled: false
+    environment:
+      LOGGING_LEVEL: INFO
+      # CloudTrail Channel ARN (REQUIRED if eventDataStoreEnabled is true)
+      # Obtain this from CloudFormation outputs after deploying with cloudTrailEventDataStore.enabled: true
+      # Format: arn:aws:cloudtrail:region:account-id:channel/channel-id
+      # CLOUDTRAIL_CHANNEL_ARN: arn:aws:cloudtrail:ca-central-1:123456789012:channel/01234567-89ab-cdef-0123-456789abcdef
+  
+  securityHubProcessor:
+    enabled: true
+    functionName: securityhub-processor
+    runtime: python3.13
+    memorySize: 256
+    timeout: 60
+    reservedConcurrentExecutions: 5
+    batchSize: 10
+    maximumBatchingWindowInSeconds: 5
+    environment:
+      LOGGING_LEVEL: INFO
+
+# ============================================================================
+# SQS QUEUE CONFIGURATION
+# ============================================================================
+
+sqsQueue:
+  enabled: true
+  queueName: event-queue
+  visibilityTimeout: 300
+  messageRetentionPeriod: 345600  # 4 days
+  maxMessageSize: 262144  # 256 KB
+  receiveMessageWaitTime: 20
+  encryption:
+    useSharedKey: true
+  deadLetterQueue:
+    enabled: true
+    queueName: event-dlq
+    maxReceiveCount: 3
+    messageRetentionPeriod: 1209600  # 14 days
+
+# ============================================================================
+# CLOUDTRAIL CONFIGURATION (Optional)
+# ============================================================================
+
+cloudTrailEventDataStore:
+  enabled: false
+  name: unified-security-events
+  retentionPeriod: 90
+  eventCategories:
+    - Data
+    - Management
+  terminationProtectionEnabled: false
+  encryption:
+    useSharedKey: true
+
+# ============================================================================
+# SECURITY HUB INTEGRATION (Optional)
+# ============================================================================
+
+securityHub:
+  enabled: true
+  encryption:
+    useSharedKey: true
+
+# ============================================================================
+# MONITORING CONFIGURATION
+# ============================================================================
+
+monitoring:
+  enabled: true
+  cloudWatchLogs:
+    enabled: true
+    retentionDays: 90
+  alarms:
+    enabled: true
+    snsTopicName: security-lake-alerts
+    emailEndpoints:
+      - security-team@example.com
+    dlqAlarm:
+      enabled: true
+      threshold: 1
+      evaluationPeriods: 1
+      datapointsToAlarm: 1
+      period: 300
+    lambdaErrorAlarm:
+      enabled: true
+      errorRateThreshold: 0.05
+      evaluationPeriods: 2
+      datapointsToAlarm: 2
+      period: 300
+    sqsAgeAlarm:
+      enabled: true
+      ageThreshold: 600
+      evaluationPeriods: 2
+      datapointsToAlarm: 2
+      period: 300
+
+# ============================================================================
+# INTEGRATION MODULES CONFIGURATION (NEW MODULAR ARCHITECTURE)
+# ============================================================================
+
+integrations:
+  # Azure Defender Integration Module
+  azure:
+    enabled: true
+    modulePath: modules/azure  # Optional, defaults to modules/{id}
+    config:
+      eventHubProcessor:
+        enabled: true
+        functionName: azure-eventhub-processor
+        memorySize: 512
+        timeout: 300
+        reservedConcurrentExecutions: 1
+        schedule: rate(5 minutes)
+        azureCredentialsSecretName: azure-eventhub-credentials
+        environment:
+          LOGGING_LEVEL: INFO
+      
+      flowLogProcessor:
+        enabled: true
+        functionName: azure-flowlog-processor
+        memorySize: 1024
+        timeout: 600
+        reservedConcurrentExecutions: 5
+        batchSize: 10
+        maximumBatchingWindowInSeconds: 5
+        azureFlowLogsSecretName: azure-flowlogs-credentials
+        environment:
+          LOGGING_LEVEL: INFO
+      
+      secretsManager:
+        eventHubSecret:
+          secretName: azure-eventhub-credentials
+          description: Azure Event Hub connection credentials
+          secretTemplate:
+            eventHubNamespace: PLACEHOLDER
+            eventHubName: PLACEHOLDER
+            consumerGroup: $Default
+            connectionString: PLACEHOLDER
+        
+        flowLogsSecret:
+          secretName: azure-flowlogs-credentials
+          description: Azure Storage Account credentials for Flow Logs
+          secretTemplate:
+            tenantId: PLACEHOLDER_TENANT_ID
+            clientId: PLACEHOLDER_CLIENT_ID
+            clientSecret: PLACEHOLDER_CLIENT_SECRET
+            subscriptionId: PLACEHOLDER_SUBSCRIPTION_ID
+            storageAccountName: PLACEHOLDER_STORAGE_ACCOUNT_NAME
+            storageAccountResourceId: PLACEHOLDER_STORAGE_ACCOUNT_RESOURCE_ID
+      
+      checkpointStore:
+        enabled: true
+        tableName: azure-eventhub-checkpoint-store
+        billingMode: PAY_PER_REQUEST
+        encryption:
+          useSharedKey: true
+        ttl:
+          enabled: true
+          attributeName: ttl
+          defaultTtlHours: 168  # 7 days
+  
+  # Google Security Command Center Integration Module
+  google-scc:
+    enabled: false
+    modulePath: modules/google-scc  # Optional, defaults to modules/google-scc
+    config:
+      pubsubPoller:
+        enabled: true
+        memorySize: 512
+        timeout: 300
+        reservedConcurrentExecutions: 1
+        schedule: rate(5 minutes)
+        environment:
+          LOGGING_LEVEL: INFO
+      
+      gcpCredentialsSecretName: gcp-pubsub-credentials
+      
+      secretsManager:
+        gcpCredentialsSecret:
+          secretName: gcp-pubsub-credentials
+          description: GCP Pub/Sub credentials for Security Command Center integration
+          secretTemplate:
+            type: service_account
+            project_id: PLACEHOLDER_PROJECT_ID
+            private_key_id: PLACEHOLDER_KEY_ID
+            private_key: PLACEHOLDER_PRIVATE_KEY
+            client_email: PLACEHOLDER@PLACEHOLDER.iam.gserviceaccount.com
+            client_id: PLACEHOLDER_CLIENT_ID
+            auth_uri: https://accounts.google.com/o/oauth2/auth
+            token_uri: https://oauth2.googleapis.com/token
+            auth_provider_x509_cert_url: https://www.googleapis.com/oauth2/v1/certs
+            client_x509_cert_url: https://www.googleapis.com/robot/v1/metadata/x509/PLACEHOLDER
+            universe_domain: googleapis.com
+            gcp_subscription_id: PLACEHOLDER_SUBSCRIPTION_ID
+
+# ============================================================================
+# ENVIRONMENT-SPECIFIC OVERRIDES
+# ============================================================================
+
+development:
+  encryptionKeyType: AWS_OWNED_CMK
+
+production:
+  encryptionKeyType: CUSTOMER_MANAGED_CMK
+  reservedConcurrentExecutions:
+    transformationLambda: 100

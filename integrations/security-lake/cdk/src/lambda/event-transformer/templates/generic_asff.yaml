@@ -1,0 +1,77 @@
+name: "generic_azure_to_asff"
+input_schema: "azure_generic_event"
+output_schema: "asff_finding"
+
+# JSONPath extractors for generic Azure events
+extractors:
+  # Core Event Fields
+  event_id: "$.event_data.id"
+  event_name: "$.event_data.name"
+  event_type: "$.event_data.type"
+  
+  # Time Information
+  time_generated: "$.event_data.time"
+  event_time: "$.event_data.eventTime"
+  
+  # Resource Information
+  resource_id: "$.event_data.resourceId"
+  subscription_id: "$.event_data.subscriptionId"
+  resource_group: "$.event_data.resourceGroupName"
+  
+  # Event Details
+  operation_name: "$.event_data.operationName"
+  status: "$.event_data.status"
+  category: "$.event_data.category"
+  
+  # Additional Properties
+  properties: "$.event_data.properties"
+  
+  # Processing Metadata
+  processing_source: "$.processing_metadata.source"
+
+# ASFF template for generic Azure events
+template: |
+  {
+    "SchemaVersion": "2018-10-08",
+    "Id": "{{ extractors.event_id | default(generate_uuid()) }}",
+    "ProductArn": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default",
+    "ProductName": "{{ config.asff_product_name | default('Azure Services') }}",
+    "CompanyName": "Microsoft",
+    "GeneratorId": "azure-generic-event",
+    "AwsAccountId": "{{ aws_account_id }}",
+    "Types": ["Unusual Behaviors/Application"],
+    "FirstObservedAt": "{{ extractors.time_generated | default(extractors.event_time) | normalize_timestamp }}",
+    "CreatedAt": "{{ extractors.time_generated | default(extractors.event_time) | normalize_timestamp }}",
+    "UpdatedAt": "{{ extractors.time_generated | default(extractors.event_time) | add_one_second | normalize_timestamp }}",
+    "Severity": {
+      "Label": "INFORMATIONAL",
+      "Normalized": 10
+    },
+    "Title": "{{ extractors.event_name | default(extractors.operation_name) | default('Azure Event') }}",
+    "Description": "Generic Azure event: {{ extractors.event_type | default('Unknown Type') }}",
+    "ProductFields": {
+      "azure/eventType": "{{ extractors.event_type | default('Unknown') }}",
+      "azure/operationName": "{{ extractors.operation_name | default('Unknown') }}",
+      "azure/subscriptionId": "{{ extractors.subscription_id | default('Unknown') }}",
+      "azure/resourceGroup": "{{ extractors.resource_group | default('Unknown') }}",
+      "azure/category": "{{ extractors.category | default('Unknown') }}",
+      "azure/status": "{{ extractors.status | default('Unknown') }}",
+      "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Azure Services') }}",
+      "aws/securityhub/CompanyName": "Microsoft"
+    },
+    "Resources": [{
+      "Type": "Other",
+      "Id": "{{ extractors.resource_id | default(extractors.subscription_id) | default('Unknown') }}",
+      "Partition": "aws",
+      "Region": "{{ extractors.resource_id | extract_azure_region | default('unknown') }}",
+      "Details": {
+        "Other": {
+          "AzureResourceId": "{{ extractors.resource_id | default('') }}",
+          "SubscriptionId": "{{ extractors.subscription_id | default('') }}",
+          "ResourceGroup": "{{ extractors.resource_group | default('') }}"
+        }
+      }
+    }],
+    "WorkflowState": "NEW",
+    "RecordState": "ACTIVE"
+  }

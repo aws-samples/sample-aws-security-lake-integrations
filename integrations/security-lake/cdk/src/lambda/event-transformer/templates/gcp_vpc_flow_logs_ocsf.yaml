@@ -1,0 +1,297 @@
+name: "gcp_vpc_flow_logs_to_ocsf_network_activity"
+input_schema: "gcp_vpc_flow_logs"
+output_schema: "ocsf_network_activity_v110"
+
+# JSONPath expressions to extract data from GCP VPC Flow Logs
+# Message format: {source, data: {event_data: {vpc flow log}}, ingestion_time, ...}
+extractors:
+  # Connection details
+  src_ip: "$.data.event_data.jsonPayload.connection.src_ip"
+  src_port: "$.data.event_data.jsonPayload.connection.src_port"
+  dest_ip: "$.data.event_data.jsonPayload.connection.dest_ip"
+  dest_port: "$.data.event_data.jsonPayload.connection.dest_port"
+  protocol: "$.data.event_data.jsonPayload.connection.protocol"
+  
+  # Traffic metrics
+  bytes_sent: "$.data.event_data.jsonPayload.bytes_sent"
+  packets_sent: "$.data.event_data.jsonPayload.packets_sent"
+  
+  # Timing
+  start_time: "$.data.event_data.jsonPayload.start_time"
+  end_time: "$.data.event_data.jsonPayload.end_time"
+  
+  # Flow metadata
+  reporter: "$.data.event_data.jsonPayload.reporter"
+  rtt_msec: "$.data.event_data.jsonPayload.rtt_msec"
+  disposition: "$.data.event_data.jsonPayload.disposition"
+  
+  # Source VPC/Instance
+  src_vpc_name: "$.data.event_data.jsonPayload.src_vpc.vpc_name"
+  src_subnetwork_name: "$.data.event_data.jsonPayload.src_vpc.subnetwork_name"
+  src_vm_name: "$.data.event_data.jsonPayload.src_instance.vm_name"
+  src_region: "$.data.event_data.jsonPayload.src_instance.region"
+  src_zone: "$.data.event_data.jsonPayload.src_instance.zone"
+  
+  # Destination VPC/Instance
+  dest_vpc_name: "$.data.event_data.jsonPayload.dest_vpc.vpc_name"
+  dest_subnetwork_name: "$.data.event_data.jsonPayload.dest_vpc.subnetwork_name"
+  dest_vm_name: "$.data.event_data.jsonPayload.dest_instance.vm_name"
+  dest_region: "$.data.event_data.jsonPayload.dest_instance.region"
+  dest_zone: "$.data.event_data.jsonPayload.dest_instance.zone"
+  
+  # Google Services
+  src_google_service: "$.data.event_data.jsonPayload.src_google_service"
+  dest_google_service: "$.data.event_data.jsonPayload.dest_google_service"
+  
+  # Destination location (for external IPs)
+  dest_location: "$.data.event_data.jsonPayload.dest_location"
+  
+  # GCP Resource Information
+  project_id: "$.data.event_data.resource.labels.project_id"
+  location: "$.data.event_data.resource.labels.location"
+  subnetwork_id: "$.data.event_data.resource.labels.subnetwork_id"
+  resource_type: "$.data.event_data.resource.type"
+  
+  # Log metadata
+  timestamp: "$.data.event_data.timestamp"
+  log_name: "$.data.event_data.logName"
+  insert_id: "$.data.event_data.insertId"
+  
+  # Enrichment metadata from pub/sub poller
+  ingestion_time: "$.ingestion_time"
+  pubsub_message_id: "$.pubsub_message_id"
+  source_type: "$.source"
+
+# OCSF v1.1.0 compliant template for Network Activity (class_uid: 4001)
+template: |
+  {
+    "time": {{ extractors.start_time | parse_timestamp }},
+    "start_time": {{ extractors.start_time | parse_timestamp }},
+    "end_time": {{ extractors.end_time | parse_timestamp }},
+    "duration": {{ (extractors.end_time | parse_timestamp) - (extractors.start_time | parse_timestamp) }},
+    "metadata": {
+      "version": "1.0.0",
+      "product": {
+        "name": "VPC Flow Logs",
+        "vendor_name": "Google Cloud Platform",
+        "version": "1.0",
+        "uid": "{{ extractors.project_id }}",
+        "feature": {
+          "name": "VPC Flow Logs",
+          "version": "1.0.0"
+        },
+        "lang": "en"
+      },
+      "profiles": ["cloud"],
+      "event_code": "vpc_flow_log",
+      "log_name": "gcp_vpc_flow_logs",
+      "log_provider": "Google Cloud",
+      "log_version": "1.0",
+      "modified_time": {{ extractors.ingestion_time | parse_timestamp }},
+      "original_time": {{ extractors.timestamp | parse_timestamp }}
+    },
+    "connection_info": {
+      "uid": "{{ extractors.insert_id }}",
+      "boundary": "External",
+      "boundary_id": 2,
+      "direction": "{{ extractors.reporter | map_direction }}",
+      "direction_id": {{ extractors.reporter | map_direction_id }},
+      "protocol_num": {{ extractors.protocol | default(0) | int }},
+      "protocol_name": "{{ extractors.protocol | map_protocol_name }}"
+    },
+    "severity": "Informational",
+    "severity_id": 1,
+    "category_uid": 4,
+    "category_name": "Network Activity",
+    "class_uid": 4001,
+    "class_name": "Network Activity",
+    "activity_id": 6,
+    "activity_name": "Traffic",
+    "type_uid": 400106,
+    "type_name": "Network Activity: Traffic",
+    "disposition": "{{ extractors.disposition | map_disposition }}",
+    "disposition_id": {{ extractors.disposition | map_disposition_id }},
+    "status": "Success",
+    "status_id": 1,
+    "timezone_offset": 0,
+    "src_endpoint": {
+      "name": "Source_IP"{% if extractors.src_ip %},
+      "ip": "{{ extractors.src_ip }}"{% endif %},
+      "port": {{ extractors.src_port | default(0) | int }}{% if extractors.src_vm_name %},
+      "svc_name": "{{ extractors.src_vm_name }}",
+      "instance_uid": "{{ extractors.src_vm_name }}"{% endif %}{% if extractors.src_vpc_name %},
+      "vpc_uid": "{{ extractors.src_vpc_name }}"{% endif %}{% if extractors.src_subnetwork_name %},
+      "subnet_uid": "{{ extractors.src_subnetwork_name }}"{% endif %}
+    },
+    "dst_endpoint": {
+      "name": "Destination_IP"{% if extractors.dest_ip %},
+      "ip": "{{ extractors.dest_ip }}"{% endif %},
+      "port": {{ extractors.dest_port | default(0) | int }}{% if extractors.dest_vm_name %},
+      "svc_name": "{{ extractors.dest_vm_name }}",
+      "instance_uid": "{{ extractors.dest_vm_name }}"{% endif %}{% if extractors.dest_vpc_name %},
+      "vpc_uid": "{{ extractors.dest_vpc_name }}"{% endif %}{% if extractors.dest_subnetwork_name %},
+      "subnet_uid": "{{ extractors.dest_subnetwork_name }}"{% endif %}
+    },
+    "traffic": {
+      "packets": {{ extractors.packets_sent | default(0) | int }},
+      "bytes": {{ extractors.bytes_sent | default(0) | int }}
+    },
+    "cloud": {
+      "provider": "GCP",
+      "region": "{{ extractors.location }}",
+      "zone": "{{ extractors.src_zone | default('unknown') }}",
+      "project_uid": "{{ extractors.project_id }}",
+      "account": {
+        "uid": "{{ extractors.project_id }}"
+      }
+    },
+    "observables": [
+      {
+        "name": "src_endpoint.ip",
+        "type": "IP Address",
+        "type_id": 2,
+        "value": "{{ extractors.src_ip | extract_ip }}"
+      },
+      {
+        "name": "dst_endpoint.ip",
+        "type": "IP Address",
+        "type_id": 2,
+        "value": "{{ extractors.dest_ip | extract_ip }}"
+      }{% if extractors.src_vm_name %},
+      {
+        "name": "src_endpoint.instance",
+        "type": "Resource UID",
+        "type_id": 10,
+        "value": "{{ extractors.src_vm_name }}"
+      }{% endif %}{% if extractors.dest_vm_name %},
+      {
+        "name": "dst_endpoint.instance",
+        "type": "Resource UID",
+        "type_id": 10,
+        "value": "{{ extractors.dest_vm_name }}"
+      }{% endif %}
+    ],
+    "enrichment": {
+      "value": "gcpFlowData",
+      "data": {
+        "reporter": "{{ extractors.reporter }}",
+        "rtt_msec": {{ extractors.rtt_msec | default(0) | int }},
+        "src_instance_zone": "{{ extractors.src_zone | default('') }}",
+        "src_region": "{{ extractors.src_region | default(extractors.location) }}",
+        "dest_instance_zone": "{{ extractors.dest_zone | default('') }}",
+        "dest_region": "{{ extractors.dest_region | default('') }}"{% if extractors.src_google_service %},
+        "src_google_service": {{ extractors.src_google_service | to_json }}{% endif %}{% if extractors.dest_google_service %},
+        "dest_google_service": {{ extractors.dest_google_service | to_json }}{% endif %}{% if extractors.dest_location %},
+        "dest_location": {{ extractors.dest_location | to_json }}{% endif %},
+        "resource_type": "{{ extractors.resource_type }}",
+        "subnetwork_id": "{{ extractors.subnetwork_id }}",
+        "gcp_log_name": "{{ extractors.log_name }}",
+        "gcp_timestamp_ms": {{ extractors.timestamp | parse_timestamp }},
+        "ingestion_time_ms": {{ extractors.ingestion_time | parse_timestamp }}
+      }
+    }
+  }
+
+# Custom filters for GCP VPC Flow Logs transformations
+filters:
+  parse_timestamp: |
+    def parse_timestamp(timestamp_str):
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            # Handle both ISO 8601 strings and numeric timestamps
+            if isinstance(timestamp_str, (int, float)):
+                # Already a timestamp in seconds
+                return int(float(timestamp_str) * 1000)
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  map_disposition: |
+    def map_disposition(disposition):
+        if not disposition:
+            return 'Unknown'
+        if str(disposition).upper() == 'ALLOWED':
+            return 'Allowed'
+        elif str(disposition).upper() == 'DENIED':
+            return 'Blocked'
+        return 'Unknown'
+  
+  map_disposition_id: |
+    def map_disposition_id(disposition):
+        if not disposition:
+            return 0
+        if str(disposition).upper() == 'ALLOWED':
+            return 1  # Allowed
+        elif str(disposition).upper() == 'DENIED':
+            return 2  # Blocked
+        return 0  # Unknown
+  
+  map_direction: |
+    def map_direction(reporter):
+        if not reporter:
+            return 'Unknown'
+        if str(reporter).upper() == 'SRC':
+            return 'Outbound'
+        elif str(reporter).upper() == 'DEST':
+            return 'Inbound'
+        return 'Unknown'
+  
+  map_direction_id: |
+    def map_direction_id(reporter):
+        if not reporter:
+            return 0
+        if str(reporter).upper() == 'SRC':
+            return 2  # Outbound
+        elif str(reporter).upper() == 'DEST':
+            return 1  # Inbound
+        return 0  # Unknown
+  
+  map_protocol_name: |
+    def map_protocol_name(protocol_num):
+        if not protocol_num:
+            return 'Unknown'
+        try:
+            protocol_map = {
+                1: 'ICMP',
+                6: 'TCP',
+                17: 'UDP',
+                47: 'GRE',
+                50: 'ESP',
+                51: 'AH',
+                58: 'ICMPv6'
+            }
+            return protocol_map.get(int(protocol_num), f'Protocol-{protocol_num}')
+        except:
+            return 'Unknown'
+  
+  detect_ip_version: |
+    def detect_ip_version(ip_address):
+        if not ip_address:
+            return 'Unknown'
+        if ':' in str(ip_address):
+            return 'IPv6'
+        return 'IPv4'
+  
+  detect_ip_version_id: |
+    def detect_ip_version_id(ip_address):
+        if not ip_address:
+            return 0
+        if ':' in str(ip_address):
+            return 6
+        return 4
+  
+  to_json: |
+    def to_json(data):
+        if not data:
+            return '{}'
+        try:
+            return json.dumps(data)
+        except:
+            return '{}'

@@ -1,0 +1,139 @@
+name: "secure_score_to_ocsf_compliance_finding_simple"
+input_schema: "azure_secure_score"
+output_schema: "ocsf_compliance_finding_v170"
+
+# JSONPath expressions to extract data from Azure secure score events
+extractors:
+  # Core Resource Fields
+  event_id: "$.event_data.id"
+  resource_name: "$.event_data.name"
+  resource_type: "$.event_data.type"
+  display_name: "$.event_data.properties.displayName"
+  
+  # Action and Timestamps
+  action: "$.event_data.securityEventDataEnrichment.action"
+  last_modified_time: "$.event_data.properties.lastModifiedTime"
+  enrichment_timestamp: "$.event_data.securityEventDataEnrichment.timestamp"
+  enqueued_time: "$.event_metadata.enqueued_time"
+  processed_timestamp: "$.processing_metadata.processed_timestamp"
+  
+  # Subscription and Azure Info
+  subscription_id: "$.event_data.id"
+  
+  # Score Information
+  current_score: "$.event_data.properties.score.current"
+  max_score: "$.event_data.properties.score.max"
+  percentage: "$.event_data.properties.score.percentage"
+
+# OCSF v1.1.0-dev compliant template for Compliance Finding (simplified)
+template: |
+  {
+    "version": "1.1.0",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2003,
+    "class_name": "Compliance Finding",
+    "type_uid": 200301,
+    "type_name": "Compliance Finding: Create",
+    "time": {{ (extractors.last_modified_time or extractors.enrichment_timestamp or extractors.enqueued_time or extractors.processed_timestamp) | to_unix_timestamp_ms }},
+    "severity_id": 3,
+    "severity": "Medium",
+    "status": "New",
+    "status_id": 1,
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.subscription_id | extract_subscription_id }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      },
+      "region": "unknown"
+    },
+    "finding_info": {
+      "uid": "{{ extractors.event_id }}",
+      "title": "{{ extractors.display_name | default('Azure Security Control') | json_escape | truncate(200) }}",
+      "desc": "Azure Security Center compliance evaluation",
+      "types": ["Compliance"],
+      "created_time": {{ (extractors.last_modified_time or extractors.enrichment_timestamp) | to_unix_timestamp_ms }},
+      "product": {
+        "name": "Azure Security Center",
+        "vendor_name": "Microsoft",
+        "version": "1.0"
+      }
+    },
+    "compliance": {
+      "standards": ["Azure Security Center"],
+      "requirements": ["Azure Security Center Compliance Check"],
+      "status": "Evaluated"
+    },
+    "resources": [
+      {
+        "uid": "{{ extractors.event_id }}",
+        "name": "{{ extractors.resource_name | default('unknown') | json_escape | truncate(100) }}",
+        "type": "Azure Security Control",
+        "cloud_partition": "azure-commercial",
+        "region": "unknown",
+        "role_id": 3,
+        "role": "Affected"
+      }
+    ],
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Azure Security Center",
+        "vendor_name": "Microsoft",
+        "version": "1.0"
+      },
+      "profiles": ["security_control"],
+      "event_code": "azure_secure_score_control",
+      "original_time": {{ (extractors.last_modified_time or extractors.enrichment_timestamp) | to_unix_timestamp_ms }}
+    },
+    "raw_data": {{ azure_event | to_json }}
+  }
+
+# Custom filters for secure score transformation
+filters:
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped
+  
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  extract_subscription_id: |
+    def extract_subscription_id(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'unknown'
+        parts = resource_id.split('/')
+        try:
+            sub_index = parts.index('subscriptions')
+            if sub_index + 1 < len(parts):
+                return parts[sub_index + 1]
+        except (ValueError, IndexError):
+            pass
+        return 'unknown'
+  
+  truncate: |
+    def truncate(text, length=100):
+        if not text or not isinstance(text, str):
+            return ''
+        return text[:length] if len(text) > length else text

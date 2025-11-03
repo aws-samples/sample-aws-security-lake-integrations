@@ -1,0 +1,134 @@
+# ============================================================================
+# Terraform Variables Example for Google Security Command Center Integration
+# 
+# Copy this file to terraform.tfvars and update with your values
+# ============================================================================
+
+# ============================================================================
+# Required Variables
+# ============================================================================
+
+# GCP Project ID where resources will be created
+gcp_project_id = "your-gcp-project-id"
+
+# GCP Organization ID for Security Command Center configuration
+gcp_organization_id = "123456789012"
+
+# ============================================================================
+# Pub/Sub Configuration
+# ============================================================================
+
+# Name of the Pub/Sub topic for SCC findings
+pubsub_topic_name = "scc-findings-topic"
+
+# Name of the Pub/Sub subscription for AWS Lambda
+pubsub_subscription_name = "scc-findings-aws-subscription"
+
+# Message retention duration (7 days)
+message_retention_duration = "604800s"
+
+# Subscription message retention duration (7 days)
+subscription_message_retention_duration = "604800s"
+
+# Acknowledgement deadline (10 minutes)
+ack_deadline_seconds = 600
+
+# Whether to retain acknowledged messages
+retain_acked_messages = false
+
+# Whether to enable message ordering
+enable_message_ordering = false
+
+# Subscription expiration TTL (empty for never expire)
+subscription_expiration_ttl = ""
+
+# Retry backoff configuration
+retry_minimum_backoff = "10s"
+retry_maximum_backoff = "600s"
+
+# Dead Letter Queue configuration
+enable_dead_letter_queue = true
+max_delivery_attempts    = 5
+
+# Allowed persistence regions (null for default)
+# allowed_persistence_regions = ["us-central1", "us-east1"]
+allowed_persistence_regions = null
+
+# ============================================================================
+# Service Account Configuration
+# ============================================================================
+
+# Service account name for AWS integration
+service_account_name = "aws-security-lake-integration"
+
+# Service account display name
+service_account_display_name = "AWS Security Lake Integration Service Account"
+
+# ============================================================================
+# Security Command Center Configuration
+# ============================================================================
+
+# Whether to create SCC notification configuration
+create_scc_notification = true
+
+# Unique identifier for the SCC notification configuration
+scc_notification_config_id = "scc-findings-to-aws-security-lake"
+
+# Filter expression for SCC findings to publish
+# Examples:
+# - "" (empty for all findings)
+# - "severity=\"HIGH\" OR severity=\"CRITICAL\""
+# - "category=\"VULNERABILITY\""
+# - "state=\"ACTIVE\""
+scc_findings_filter = ""
+
+# ============================================================================
+# API Configuration
+# ============================================================================
+
+# Whether to enable Security Command Center API
+enable_scc_api = true
+
+# Whether to enable Pub/Sub API
+enable_pubsub_api = true
+
+# ============================================================================
+# Secret Manager Configuration
+# ============================================================================
+
+# Whether to store service account key in GCP Secret Manager
+# Note: It's recommended to retrieve the key from Terraform output instead
+store_key_in_secret_manager = false
+
+# Secret ID for storing service account key in Secret Manager
+secret_manager_secret_id = "aws-integration-service-account-key"
+
+# ============================================================================
+# Regional Configuration
+# ============================================================================
+
+# GCP region for regional resources
+gcp_region = "us-central1"
+
+# ============================================================================
+# Labeling
+# ============================================================================
+
+# Labels to apply to all resources
+labels = {
+  environment = "production"
+  managed_by  = "terraform"
+  integration = "aws-security-lake"
+  project     = "gcp-scc-integration"
+  owner       = "security-team"
+}
+
+# ============================================================================
+# Environment Configuration
+# ============================================================================
+
+# Environment name
+environment = "prod"
+
+# Project name for resource naming
+project_name = "gcp-scc-aws-securitylake"

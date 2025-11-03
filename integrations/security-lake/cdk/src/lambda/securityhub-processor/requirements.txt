@@ -1,0 +1,5 @@
+# Security Hub Processor Lambda Requirements
+# Minimal dependencies for lightweight Lambda deployment
+
+# AWS SDK (included in Lambda runtime, but specified for local development)
+boto3>=1.26.0

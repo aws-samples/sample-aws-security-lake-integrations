@@ -1,0 +1,14 @@
+# AWS Lambda Requirements for Flow Log Processor (Full Implementation)
+# Dependencies for Azure Blob Storage download, OCSF conversion, and Parquet output
+
+# AWS SDK
+boto3>=1.28.0
+
+# Azure SDK for Blob Storage
+azure-identity>=1.15.0
+azure-storage-blob>=12.19.0
+
+# PyArrow for Parquet writing (ARM64 Lambda compatibility)
+# CRITICAL: Version constraints required for ARM64 Lambda runtime
+pyarrow>=15.0.0,<21.0.0
+numpy>=1.24.0,<2.0.0

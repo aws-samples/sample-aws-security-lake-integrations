@@ -1,0 +1,118 @@
+# Google Security Command Center Integration Module - Example Configuration
+#
+# This configuration demonstrates how to enable and configure the Google SCC
+# integration module with AWS Security Lake.
+
+integrations:
+  google-scc:
+    enabled: true
+    modulePath: modules/google-scc  # Optional, defaults to modules/google-scc
+    
+    config:
+      # Pub/Sub Pollers Configuration (Array)
+      # Each poller polls a different GCP Pub/Sub subscription
+      # All pollers send to the same SQS transformer queue
+      pubsubPollers:
+        # Security Command Center Findings Poller
+        # Polls Security Command Center findings from GCP Pub/Sub
+        - enabled: true
+          moduleId: scc-findings
+          memorySize: 512  # MB (128-10240)
+          timeout: 300     # seconds (1-900)
+          reservedConcurrentExecutions: 1  # Prevents duplicate processing
+          schedule: rate(5 minutes)  # EventBridge schedule expression
+          gcpCredentialsSecretName: gcp-scc-findings-credentials
+          environment:
+            LOGGING_LEVEL: INFO  # DEBUG for verbose logging
+            GCP_PROJECT_ID: my-gcp-project-scc
+            GCP_SUBSCRIPTION_ID: scc-findings-subscription
+        
+        # VPC Flow Logs Poller
+        # Polls VPC Flow Logs from separate GCP Pub/Sub subscription with separate credentials
+        - enabled: true
+          moduleId: vpc-flow-logs
+          memorySize: 512
+          timeout: 300
+          reservedConcurrentExecutions: 1
+          schedule: rate(5 minutes)
+          gcpCredentialsSecretName: gcp-vpc-flow-logs-credentials
+          environment:
+            LOGGING_LEVEL: INFO
+            GCP_PROJECT_ID: my-gcp-project-vpc  # Can be same or different project
+            GCP_SUBSCRIPTION_ID: vpc-flow-logs-subscription
+      
+      # Secrets Manager Configuration
+      # Define all GCP credentials secrets here
+      secretsManager:
+        gcpCredentialsSecrets:
+          # Secret for Security Command Center findings
+          - secretName: gcp-scc-findings-credentials
+            description: GCP Pub/Sub credentials for Security Command Center integration
+            create: true  # Set to false if secret already exists
+            secretTemplate:
+              type: service_account
+              project_id: PLACEHOLDER_PROJECT_ID
+              private_key_id: PLACEHOLDER_KEY_ID
+              private_key: PLACEHOLDER_PRIVATE_KEY
+              client_email: PLACEHOLDER@PLACEHOLDER.iam.gserviceaccount.com
+              client_id: PLACEHOLDER_CLIENT_ID
+              auth_uri: https://accounts.google.com/o/oauth2/auth
+              token_uri: https://oauth2.googleapis.com/token
+              auth_provider_x509_cert_url: https://www.googleapis.com/oauth2/v1/certs
+              client_x509_cert_url: https://www.googleapis.com/robot/v1/metadata/x509/PLACEHOLDER
+              universe_domain: googleapis.com
+              gcp_subscription_id: PLACEHOLDER_SUBSCRIPTION_ID
+          
+          # Secret for VPC Flow Logs
+          - secretName: gcp-vpc-flow-logs-credentials
+            description: GCP Pub/Sub credentials for VPC Flow Logs integration
+            create: true
+            secretTemplate:
+              type: service_account
+              project_id: PLACEHOLDER_VPC_PROJECT_ID
+              private_key_id: PLACEHOLDER_KEY_ID
+              private_key: PLACEHOLDER_PRIVATE_KEY
+              client_email: PLACEHOLDER@PLACEHOLDER.iam.gserviceaccount.com
+              client_id: PLACEHOLDER_CLIENT_ID
+              auth_uri: https://accounts.google.com/o/oauth2/auth
+              token_uri: https://oauth2.googleapis.com/token
+              auth_provider_x509_cert_url: https://www.googleapis.com/oauth2/v1/certs
+              client_x509_cert_url: https://www.googleapis.com/robot/v1/metadata/x509/PLACEHOLDER
+              universe_domain: googleapis.com
+              gcp_subscription_id: PLACEHOLDER_VPC_FLOW_LOGS_SUBSCRIPTION_ID
+
+# Alternative configuration examples:
+
+# Single poller configuration:
+# pubsubPollers:
+#   - enabled: true
+#     moduleId: scc-findings
+#     memorySize: 512
+#     timeout: 300
+#     reservedConcurrentExecutions: 1
+#     schedule: rate(5 minutes)
+#     gcpCredentialsSecretName: gcp-pubsub-credentials
+#     environment:
+#       LOGGING_LEVEL: INFO
+
+# High-volume environment (>1000 findings/minute):
+# pubsubPollers:
+#   - enabled: true
+#     moduleId: high-volume-poller
+#     memorySize: 1024
+#     timeout: 600
+#     schedule: rate(1 minute)
+#     gcpCredentialsSecretName: gcp-credentials-hv
+#     environment:
+#       LOGGING_LEVEL: INFO
+
+# Low-volume environment (<100 findings/minute):
+# pubsubPollers:
+#   - enabled: true
+#     moduleId: low-volume-poller
+#     memorySize: 256
+#     timeout: 120
+#     schedule: rate(15 minutes)
+#     gcpCredentialsSecretName: gcp-credentials-lv
+#     environment:
+#       LOGGING_LEVEL: INFO

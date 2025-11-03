@@ -1,0 +1,61 @@
+name: "security_alert_to_cloudtrail"
+input_schema: "azure_security_alert"
+output_schema: "cloudtrail_audit_event"
+
+# JSONPath expressions to extract data from Azure security alert events
+extractors:
+  event_id: "$.event_data.SystemAlertId"
+  alert_title: "$.event_data.AlertDisplayName"
+  alert_type: "$.event_data.AlertType"
+  severity: "$.event_data.Severity"
+  description: "$.event_data.Description"
+  time_generated: "$.event_data.TimeGenerated"
+  compromised_entity: "$.event_data.CompromisedEntity"
+  entities: "$.event_data.Entities"
+  remediation_steps: "$.event_data.RemediationSteps"
+  extended_properties: "$.event_data.ExtendedProperties"
+  alert_uri: "$.event_data.AlertUri"
+  resource_identifiers: "$.event_data.ResourceIdentifiers"
+  processing_source: "$.processing_metadata.source"
+
+# Jinja2 template for CloudTrail Lake integration format
+template: |
+  {
+    "eventData": {
+      "version": "1.0",
+      "userIdentity": {
+        "type": "AzureDefender",
+        "principalId": "{{ extractors.processing_source | default('azure-eventhub') }}",
+        "details": {
+          "subscriptionId": "{{ extractors.resource_identifiers | extract_azure_subscription }}",
+          "integrationVersion": "4.0.0"
+        }
+      },
+      "eventSource": "{{ config.event_source }}",
+      "eventName": "{{ extractors.alert_type | default(config.event_name_prefix) }}",
+      "eventTime": "{{ extractors.time_generated | normalize_timestamp }}",
+      "UID": "{{ extractors.event_id | default(generate_uuid()) }}",
+      "recipientAccountId": "{{ aws_account_id }}",
+      "userAgent": "{{ config.user_agent }}"{% set source_ip = extractors.entities | extract_source_ip %}{% if source_ip %},
+      "sourceIPAddress": "{{ source_ip }}"{% endif %},
+      "additionalEventData": {
+        "alertDisplayName": "{{ extractors.alert_title | default('Unknown Security Alert') }}",
+        "severity": "{{ extractors.severity | format_severity }}",
+        "description": "{{ extractors.description | default('') | replace('\n', ' ') | replace('\r', '') | replace('\"', '\\\"') | truncate(500) }}",
+        "compromisedEntity": "{{ extractors.compromised_entity | default('') }}",
+        "remediationSteps": {{ extractors.remediation_steps | default([]) | to_json }},
+        "entities": {{ extractors.entities | default([]) | to_json }},
+        "extendedProperties": {{ extractors.extended_properties | default({}) | to_json }},
+        "alertUri": "{{ extractors.alert_uri | default('') }}",
+        "originalAzureAlertId": "{{ extractors.event_id }}",
+        "ocsf_class": "{{ config.ocsf_class }}",
+        "originalEventSource": "Microsoft Defender for Cloud",
+        "processingTimestamp": "{{ timestamp | normalize_timestamp }}"
+      }
+    },
+    "id": "{{ extractors.event_id | default(generate_uuid()) }}"
+  }
+
+# Optional custom filters for this template
+filters:
+  truncate: "lambda s, length: s[:length] + '...' if len(s) > length else s"

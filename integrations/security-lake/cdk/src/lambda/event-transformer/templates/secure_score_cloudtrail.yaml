@@ -1,0 +1,66 @@
+name: "secure_score_to_cloudtrail"
+input_schema: "azure_secure_score"
+output_schema: "cloudtrail_audit_event"
+
+# JSONPath expressions to extract data from Azure secure score events
+extractors:
+  event_id: "$.event_data.id"
+  resource_name: "$.event_data.name"
+  resource_type: "$.event_data.type"
+  display_name: "$.event_data.properties.displayName"
+  action: "$.event_data.securityEventDataEnrichment.action"
+  last_modified_time: "$.event_data.properties.lastModifiedTime"
+  enrichment_timestamp: "$.event_data.securityEventDataEnrichment.timestamp"
+  enqueued_time: "$.event_metadata.enqueued_time"
+  processed_timestamp: "$.processing_metadata.processed_timestamp"
+  subscription_id: "$.event_data.id"
+  current_score: "$.event_data.properties.score.current"
+  max_score: "$.event_data.properties.score.max"
+  percentage: "$.event_data.properties.score.percentage"
+  healthy_resource_count: "$.event_data.properties.healthyResourceCount"
+  unhealthy_resource_count: "$.event_data.properties.unhealthyResourceCount"
+  not_applicable_resource_count: "$.event_data.properties.notApplicableResourceCount"
+  weight: "$.event_data.properties.weight"
+
+# Jinja2 template for CloudTrail Lake integration format
+template: |
+  {
+    "eventData": {
+      "version": "1.0",
+      "userIdentity": {
+        "type": "AzureSecurityCenter",
+        "principalId": "{{ extractors.subscription_id | extract_subscription_id }}",
+        "details": {
+          "resourceType": "{{ extractors.resource_type | default('Microsoft.Security/secureScores') }}",
+          "integrationVersion": "4.0.0"
+        }
+      },
+      "eventSource": "{{ config.event_source }}",
+      "eventName": "{{ config.event_name_prefix }}",
+      "eventTime": "{{ (extractors.last_modified_time or extractors.enrichment_timestamp or extractors.enqueued_time or extractors.processed_timestamp or timestamp) | normalize_timestamp }}",
+      "UID": "{{ generate_uuid() }}",
+      "recipientAccountId": "{{ aws_account_id }}",
+      "userAgent": "{{ config.user_agent }}",
+      "additionalEventData": {
+        "displayName": "{{ extractors.display_name | default('Azure Secure Score Control') }}",
+        "action": "{{ extractors.action | default('Unknown') }}",
+        "resourceId": "{{ extractors.event_id | default('unknown') }}",
+        "resourceName": "{{ extractors.resource_name | default('unknown') }}",
+        "originalAzureResourceId": "{{ extractors.event_id }}",
+        "scoreInfo": {
+          "current": {{ extractors.current_score | default(0) }},
+          "max": {{ extractors.max_score | default(0) }},
+          "percentage": {{ extractors.percentage | default(0.0) }}
+        },
+        "healthyResourceCount": {{ extractors.healthy_resource_count | default(0) }},
+        "unhealthyResourceCount": {{ extractors.unhealthy_resource_count | default(0) }},
+        "notApplicableResourceCount": {{ extractors.not_applicable_resource_count | default(0) }}{% if extractors.weight %},
+        "weight": {{ extractors.weight }}{% endif %},
+        "originalAzureResourceId": "{{ extractors.event_id }}",
+        "ocsf_class": "{{ config.ocsf_class }}",
+        "originalEventSource": "Azure Security Center",
+        "processingTimestamp": "{{ timestamp | normalize_timestamp }}"
+      }
+    },
+    "id": "{{ generate_uuid() }}"
+  }

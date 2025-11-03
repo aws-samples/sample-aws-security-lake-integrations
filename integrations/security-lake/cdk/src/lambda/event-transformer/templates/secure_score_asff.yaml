@@ -1,0 +1,86 @@
+name: "secure_score_to_asff"
+input_schema: "azure_secure_score"
+output_schema: "asff_compliance_finding"
+
+# JSONPath extractors for Azure Secure Score data
+extractors:
+  # Core Score Fields
+  score_id: "$.event_data.id"
+  score_name: "$.event_data.properties.displayName"
+  score_description: "$.event_data.properties.description"
+  score_current: "$.event_data.properties.score.current"
+  score_max: "$.event_data.properties.score.max"
+  score_percentage: "$.event_data.properties.score.percentage"
+  
+  # Metadata
+  subscription_id: "$.event_data.properties.subscriptionId"
+  time_generated: "$.event_data.properties.timestamp"
+  
+  # Control Information
+  control_name: "$.event_data.properties.control.name"
+  control_description: "$.event_data.properties.control.description"
+  control_id: "$.event_data.properties.control.id"
+  
+  # Status Information
+  status: "$.event_data.properties.status"
+  percentage_score: "$.event_data.properties.percentageScore"
+  
+  # Resource Information
+  resource_id: "$.event_data.id"
+  resource_type: "$.event_data.type"
+
+# ASFF template for compliance findings
+template: |
+  {
+    "SchemaVersion": "2018-10-08",
+    "Id": "{{ extractors.score_id | default(generate_uuid()) }}",
+    "ProductArn": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default",
+    "ProductName": "{{ config.asff_product_name | default('Microsoft Secure Score') }}",
+    "CompanyName": "Microsoft",
+    "GeneratorId": "azure-secure-score",
+    "AwsAccountId": "{{ aws_account_id }}",
+    "Types": ["Software and Configuration Checks/Industry and Regulatory Standards"],
+    "FirstObservedAt": "{{ extractors.time_generated | normalize_timestamp }}",
+    "CreatedAt": "{{ extractors.time_generated | normalize_timestamp }}",
+    "UpdatedAt": "{{ extractors.time_generated | normalize_timestamp }}",
+    "Severity": {
+      "Label": "{{ extractors.score_current | score_to_severity(extractors.score_max) }}",
+      "Normalized": {{ extractors.score_current | score_to_severity_normalized(extractors.score_max) }}
+    },
+    "Title": "{{ extractors.score_name | default('Azure Secure Score') }}",
+    "Description": "{{ extractors.score_description | default('Security posture assessment for Azure resources') | replace('\n', ' ') | replace('\"', '\\\"') | truncate(1024) }}",
+    "Remediation": {
+      "Recommendation": {
+        "Text": "Review and implement security recommendations to improve your secure score",
+        "Url": "https://portal.azure.com/#blade/Microsoft_Azure_Security/SecurityMenuBlade/22"
+      }
+    },
+    "ProductFields": {
+      "azure/subscriptionId": "{{ extractors.subscription_id | default('Unknown') }}",
+      "azure/currentScore": "{{ extractors.score_current | default(0) }}",
+      "azure/maxScore": "{{ extractors.score_max | default(0) }}",
+      "azure/scorePercentage": "{{ extractors.score_percentage | default(0) }}",
+      "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Microsoft Secure Score') }}",
+      "aws/securityhub/CompanyName": "Microsoft"
+    },
+    "Compliance": {
+      "Status": "{{ extractors.score_current | score_to_compliance_status(extractors.score_max) }}",
+      "RelatedRequirements": ["Azure Secure Score"],
+      "StatusReasons": [
+        {
+          "ReasonCode": "{{ extractors.score_current | score_to_reason_code(extractors.score_max) }}",
+          "Description": "Current score: {{ extractors.score_current | default(0) }} out of {{ extractors.score_max | default(0) }} ({{ extractors.score_percentage | default(0) }}%)"
+        }
+      ]
+    },
+    "Resources": [
+      {
+        "Type": "AwsAccount",
+        "Id": "{{ aws_account_id }}",
+        "Partition": "aws",
+        "Region": "{{ aws_region }}"
+      }
+    ],
+    "WorkflowState": "NEW",
+    "RecordState": "ACTIVE"
+  }

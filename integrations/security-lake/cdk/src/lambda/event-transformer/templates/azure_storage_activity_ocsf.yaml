@@ -1,0 +1,253 @@
+name: "azure_storage_activity_to_ocsf_datastore_activity"
+input_schema: "azure_storage_diagnostic_logs"
+output_schema: "ocsf_datastore_activity_v110"
+
+# JSONPath extractors for Azure Storage Diagnostic Logs
+extractors:
+  # Core fields
+  time: "$.event_data.time"
+  operation_name: "$.event_data.operationName"
+  operation_version: "$.event_data.operationVersion"
+  category: "$.event_data.category"
+  resource_id: "$.event_data.resourceId"
+  
+  # Status fields
+  status_code: "$.event_data.statusCode"
+  status_text: "$.event_data.statusText"
+  duration_ms: "$.event_data.durationMs"
+  
+  # Network fields
+  caller_ip_address: "$.event_data.callerIpAddress"
+  location: "$.event_data.location"
+  protocol: "$.event_data.protocol"
+  uri: "$.event_data.uri"
+  
+  # Identity
+  identity_type: "$.event_data.identity.type"
+  identity_token_hash: "$.event_data.identity.tokenHash"
+  correlation_id: "$.event_data.correlationId"
+  
+  # Storage-specific properties
+  account_name: "$.event_data.properties.accountName"
+  user_agent: "$.event_data.properties.userAgentHeader"
+  client_request_id: "$.event_data.properties.clientRequestId"
+  service_type: "$.event_data.properties.serviceType"
+  object_key: "$.event_data.properties.objectKey"
+  metric_response_type: "$.event_data.properties.metricResponseType"
+  server_latency_ms: "$.event_data.properties.serverLatencyMs"
+  request_header_size: "$.event_data.properties.requestHeaderSize"
+  response_header_size: "$.event_data.properties.responseHeaderSize"
+  response_body_size: "$.event_data.properties.responseBodySize"
+  tls_version: "$.event_data.properties.tlsVersion"
+  source_access_tier: "$.event_data.properties.sourceAccessTier"
+  schema_version: "$.event_data.schemaVersion"
+  resource_type: "$.event_data.resourceType"
+
+# OCSF v1.1.0 Datastore Activity template (class_uid: 6005)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 6005,
+    "class_name": "Datastore Activity",
+    "category_uid": 6,
+    "category_name": "Application Activity",
+    "activity_id": {{ extractors.operation_name | map_storage_activity_id }},
+    "activity_name": "{{ extractors.operation_name | map_storage_activity_name }}",
+    "type_uid": {{ 600500 + (extractors.operation_name | map_storage_activity_id) }},
+    "type_name": "Datastore Activity: {{ extractors.operation_name | map_storage_activity_name }}",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": {{ extractors.category | map_storage_severity_id }},
+    "severity": "{{ extractors.category | map_storage_severity }}",
+    "status": "{{ extractors.status_text | default('Unknown') }}",
+    "status_id": {{ extractors.status_code | map_http_status_id }},
+    "status_code": "{{ extractors.status_code | default('0') }}",
+    "status_detail": "{{ extractors.metric_response_type | default('') }}",
+    "message": "Azure Storage {{ extractors.operation_name }} on {{ extractors.account_name }}/{{ extractors.object_key | default('') }}",
+    "datastore": {
+      "name": "{{ extractors.account_name }}.blob.core.windows.net",
+      "type": "Azure Blob Storage",
+      "type_id": 9,
+      "uid": "{{ extractors.resource_id }}"
+    },
+    "src_endpoint": {
+      {% if extractors.caller_ip_address | extract_ip | is_valid %}"ip": "{{ extractors.caller_ip_address | extract_ip }}",
+      {% endif %}"port": {{ (extractors.caller_ip_address | extract_port) | default(443) | int }},
+      "svc_name": "{{ extractors.protocol | default('HTTPS') }}"{% if extractors.location %},
+      "location": {
+        "desc": "{{ extractors.location }}"
+      }{% endif %}
+    },
+    "dst_endpoint": {
+      "url": {
+        "hostname": "{{ extractors.account_name }}.blob.core.windows.net",
+        "url_string": "{{ extractors.uri | default('') }}"
+      },
+      "svc_name": "Azure Blob Storage"
+    },
+    "actor": {
+      "idp": {
+        "name": "Azure Storage",
+        "uid": "{{ extractors.identity_type | default('Unknown') }}"
+      },
+      "session": {
+        "uid": "{{ extractors.correlation_id | default('') }}"
+      }{% if extractors.identity_token_hash %},
+      "authorizations": [
+        {
+          "decision": "Allow",
+          "policy": {
+            "name": "Storage Access Token",
+            "desc": "{{ extractors.identity_token_hash | json_escape }}"
+          }
+        }
+      ]{% endif %}
+    },
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.resource_id | extract_azure_subscription }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      }{% if extractors.location %},
+      "region": "{{ extractors.location }}"{% endif %}
+    },
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Azure Storage",
+        "vendor_name": "Microsoft",
+        "version": "{{ extractors.operation_version | default('2021-04-10') }}",
+        "feature": {
+          "name": "Storage Diagnostic Logs"
+        }
+      },
+      "profiles": ["cloud"],
+      "event_code": "{{ extractors.operation_name }}",
+      "correlation_uid": "{{ extractors.correlation_id | default('') }}",
+      "logged_time": {{ extractors.time | to_unix_timestamp_ms }}
+    },{% if extractors.duration_ms %}
+    "duration": {{ extractors.duration_ms }},{% endif %}
+    "http_request": {
+      "version": "HTTP/1.1",
+      "url": {
+        "url_string": "{{ extractors.uri | default('') }}"
+      },
+      "user_agent": "{{ extractors.user_agent | default('') }}"
+    },
+    "http_response": {
+      "code": {{ extractors.status_code | default(200) | int }},
+      "message": "{{ extractors.status_text | default('') }}",
+      "length": {{ extractors.response_body_size | default(0) | int }},
+      "latency": {{ extractors.server_latency_ms | default(0) | int }}
+    },
+    "unmapped": {
+      "service_type": "{{ extractors.service_type | default('') }}",
+      "resource_type": "{{ extractors.resource_type | default('') }}",
+      "schema_version": "{{ extractors.schema_version | default('') }}",
+      "tls_version": "{{ extractors.tls_version | default('') }}",
+      "source_access_tier": "{{ extractors.source_access_tier | default('') }}",
+      "request_header_size": {{ extractors.request_header_size | default(0) | int }},
+      "response_header_size": {{ extractors.response_header_size | default(0) | int }}
+    }
+  }
+
+# Custom filters for Azure Storage Activity
+filters:
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  map_storage_activity_id: |
+    def map_storage_activity_id(operation_name):
+        activity_map = {
+            'GetBlob': 1,
+            'PutBlob': 2,
+            'DeleteBlob': 3,
+            'ListContainers': 4,
+            'ListBlobs': 4,
+            'GetContainerProperties': 1,
+            'GetBlobProperties': 1,
+            'PutPage': 2,
+            'PutBlockList': 2,
+            'AppendBlock': 2
+        }
+        return activity_map.get(str(operation_name), 99)
+  
+  map_storage_activity_name: |
+    def map_storage_activity_name(operation_name):
+        activity_map = {
+            'GetBlob': 'Read',
+            'PutBlob': 'Write',
+            'DeleteBlob': 'Delete',
+            'ListContainers': 'Query',
+            'ListBlobs': 'Query',
+            'GetContainerProperties': 'Read',
+            'GetBlobProperties': 'Read',
+            'PutPage': 'Write',
+            'PutBlockList': 'Write',
+            'AppendBlock': 'Write'
+        }
+        return activity_map.get(str(operation_name), 'Other')
+  
+  map_storage_severity_id: |
+    def map_storage_severity_id(category):
+        category_map = {
+            'StorageRead': 1,
+            'StorageWrite': 2,
+            'StorageDelete': 3,
+            'TransactionLogs': 1
+        }
+        return category_map.get(str(category), 1)
+  
+  map_storage_severity: |
+    def map_storage_severity(category):
+        severity_map = {
+            'StorageRead': 'Informational',
+            'StorageWrite': 'Low',
+            'StorageDelete': 'Medium',
+            'TransactionLogs': 'Informational'
+        }
+        return severity_map.get(str(category), 'Informational')
+  
+  map_http_status_id: |
+    def map_http_status_id(status_code):
+        try:
+            code = int(status_code)
+            if code < 300:
+                return 1  # Success
+            elif code < 400:
+                return 2  # Redirect
+            elif code < 500:
+                return 3  # Client Error
+            else:
+                return 4  # Server Error
+        except Exception:
+            return 99  # Unknown
+  
+  extract_azure_subscription: |
+    def extract_azure_subscription(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'unknown'
+        if '/subscriptions/' in resource_id:
+            return resource_id.split('/subscriptions/')[1].split('/')[0]
+        return 'unknown'
+  
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped

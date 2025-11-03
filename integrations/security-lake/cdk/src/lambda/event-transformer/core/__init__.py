@@ -1,0 +1,1 @@
+# Core event processing modules for Microsoft Defender CloudTrail integration

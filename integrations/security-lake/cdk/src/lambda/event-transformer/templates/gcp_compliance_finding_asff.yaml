@@ -1,0 +1,224 @@
+name: "gcp_compliance_to_asff"
+input_schema: "gcp_scc_finding"
+output_schema: "asff_compliance_finding"
+
+# JSONPath extractors for GCP SCC Compliance/Misconfiguration Finding fields
+extractors:
+  # Core Finding Fields
+  finding_name: "$.event_data.finding.name"
+  finding_id: "$.event_data.finding.name"
+  parent: "$.event_data.finding.parent"
+  resource_name: "$.event_data.finding.resourceName"
+  state: "$.event_data.finding.state"
+  category: "$.event_data.finding.category"
+  external_uri: "$.event_data.finding.externalUri"
+  
+  # Timestamps
+  event_time: "$.event_data.finding.eventTime"
+  create_time: "$.event_data.finding.createTime"
+  
+  # Severity
+  severity: "$.event_data.finding.severity"
+  mute: "$.event_data.finding.mute"
+  
+  # Compliance Specific
+  compliances: "$.event_data.finding.compliances"
+  
+  # GCP Resource Information
+  project_id: "$.event_data.finding.resourceName"
+  project_display_name: "$.event_data.resource.projectDisplayName"
+  resource_type: "$.event_data.resource.type"
+  resource_display_name: "$.event_data.resource.displayName"
+  
+  # Finding Class
+  finding_class: "$.event_data.finding.findingClass"
+  
+  # Description
+  description: "$.event_data.finding.description"
+  recommendation: "$.event_data.finding.recommendation"
+  next_steps: "$.event_data.finding.nextSteps"
+
+# ASFF template for GCP Compliance/Misconfiguration Finding
+template: |
+  {
+    "SchemaVersion": "2018-10-08",
+    "Id": "{{ extractors.finding_id | extract_finding_uid }}",
+    "ProductArn": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default",
+    "ProductName": "{{ config.asff_product_name | default('Google Cloud Security Command Center') }}",
+    "CompanyName": "Google",
+    "GeneratorId": "gcp-scc-compliance",
+    "AwsAccountId": "{{ aws_account_id }}",
+    "Types": ["Software and Configuration Checks/Industry and Regulatory Standards"],
+    "FirstObservedAt": "{{ extractors.create_time | normalize_timestamp }}",
+    "CreatedAt": "{{ extractors.create_time | normalize_timestamp }}",
+    "UpdatedAt": "{{ extractors.event_time | normalize_timestamp }}",
+    "Severity": {
+      "Label": "{{ extractors.severity | gcp_to_asff_severity_label }}",
+      "Normalized": {{ extractors.severity | gcp_to_asff_severity_normalized }}
+    },
+    "Title": "{{ extractors.category | default('GCP Compliance Finding') | truncate(200) }}",
+    "Description": "{{ extractors.description | default(extractors.category) | default('Misconfiguration or compliance issue detected in GCP resource') | json_escape | truncate(1024) }}",{% if extractors.compliances %}
+    "Compliance": {
+      "Status": "{{ extractors.state | gcp_state_to_compliance_status }}",{% set first_compliance = extractors.compliances[0] %}{% if first_compliance %}{% if first_compliance.standard or first_compliance.ids %}
+      "RelatedRequirements": [
+        {% if first_compliance.ids %}
+          {% for control_id in first_compliance.ids %}
+        "{{ first_compliance.standard | default('') }}{% if first_compliance.standard %} {% endif %}{{ control_id }}"{{ ',' if not loop.last else '' }}
+          {% endfor %}
+        {% elif first_compliance.standard %}
+        "{{ first_compliance.standard }}"
+        {% endif %}
+      ],{% endif %}{% if first_compliance.ids %}
+      "SecurityControlId": "{{ first_compliance.ids[0] }}",{% endif %}{% if first_compliance.standard %}
+      "AssociatedStandards": [{
+        "StandardsId": "standards/{{ first_compliance.standard | lower | replace(' ', '-') }}"
+      }]{% endif %}{% endif %}
+    },{% endif %}{% if extractors.recommendation or extractors.next_steps or extractors.external_uri %}
+    "Remediation": {
+      "Recommendation": {
+        "Text": "{{ ((extractors.recommendation | default('')) ~ ((' ' ~ extractors.next_steps) if extractors.next_steps else '') ~ (('Review and remediate the compliance issue according to GCP Security Command Center recommendations') if not extractors.recommendation and not extractors.next_steps else '')) | json_escape | truncate(400) }}",
+        "Url": "{{ extractors.external_uri | default('https://console.cloud.google.com/security/command-center') }}"
+      }
+    },{% endif %}{% if extractors.external_uri %}
+    "SourceUrl": "{{ extractors.external_uri }}",{% endif %}
+    "ProductFields": {
+      "gcp/findingClass": "{{ extractors.finding_class | default('MISCONFIGURATION') }}",
+      "gcp/category": "{{ extractors.category | default('') }}",
+      "gcp/projectId": "{{ extractors.project_id | extract_gcp_project_id }}",{% if extractors.project_display_name %}
+      "gcp/projectDisplayName": "{{ extractors.project_display_name }}",{% endif %}{% if extractors.mute %}
+      "gcp/mute": "{{ extractors.mute }}",{% endif %}{% if extractors.compliances %}{% set first_compliance = extractors.compliances[0] %}{% if first_compliance.standard %}
+      "gcp/complianceStandard": "{{ first_compliance.standard }}",{% endif %}{% if first_compliance.version %}
+      "gcp/complianceVersion": "{{ first_compliance.version }}",{% endif %}{% endif %}
+      "gcp/state": "{{ extractors.state | default('ACTIVE') }}",
+      "aws/securityhub/FindingId": "{{ extractors.finding_id | extract_finding_uid }}",
+      "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Google Cloud Security Command Center') }}",
+      "aws/securityhub/CompanyName": "Google"
+    },
+    "Resources": [{
+      "Type": "{% if extractors.resource_type %}{{ extractors.resource_type }}{% else %}Other{% endif %}",
+      "Id": "{{ extractors.resource_name }}",
+      "Partition": "aws",
+      "Region": "{{ extractors.resource_name | extract_gcp_region }}",
+      "Details": {
+        "Other": {
+          "GcpResourceName": "{{ extractors.resource_name }}",
+          "GcpResourceDisplayName": "{{ extractors.resource_display_name | default('') }}",
+          "GcpResourceType": "{{ extractors.resource_type | default('') }}",
+          "GcpProjectId": "{{ extractors.project_id | extract_gcp_project_id }}"
+        }
+      }
+    }],
+    "WorkflowState": "NEW",
+    "RecordState": "{{ extractors.state | gcp_state_to_asff_record_state }}"
+  }
+
+# Custom filters for GCP-to-ASFF transformations
+filters:
+  extract_finding_uid: |
+    def extract_finding_uid(finding_name):
+        if not finding_name:
+            return ''
+        parts = finding_name.split('/')
+        if len(parts) > 0:
+            return parts[-1]
+        return finding_name
+  
+  extract_gcp_project_id: |
+    def extract_gcp_project_id(resource_name):
+        if not resource_name:
+            return ''
+        if 'projects/' in resource_name:
+            parts = resource_name.split('projects/')
+            if len(parts) > 1:
+                return parts[1].split('/')[0]
+        return ''
+  
+  extract_gcp_region: |
+    def extract_gcp_region(resource_name):
+        if not resource_name:
+            return 'global'
+        if '/locations/' in resource_name:
+            parts = resource_name.split('/locations/')
+            if len(parts) > 1:
+                return parts[1].split('/')[0]
+        return 'global'
+  
+  gcp_to_asff_severity_label: |
+    def gcp_to_asff_severity_label(severity):
+        severity_map = {
+            'CRITICAL': 'CRITICAL',
+            'HIGH': 'HIGH',
+            'MEDIUM': 'MEDIUM',
+            'LOW': 'LOW',
+            'UNSPECIFIED': 'INFORMATIONAL'
+        }
+        return severity_map.get(str(severity).upper(), 'INFORMATIONAL')
+  
+  gcp_to_asff_severity_normalized: |
+    def gcp_to_asff_severity_normalized(severity):
+        severity_map = {
+            'CRITICAL': 90,
+            'HIGH': 70,
+            'MEDIUM': 40,
+            'LOW': 10,
+            'UNSPECIFIED': 0
+        }
+        return severity_map.get(str(severity).upper(), 0)
+  
+  gcp_state_to_asff_record_state: |
+    def gcp_state_to_asff_record_state(state):
+        state_map = {
+            'ACTIVE': 'ACTIVE',
+            'INACTIVE': 'ARCHIVED'
+        }
+        return state_map.get(str(state).upper(), 'ACTIVE')
+  
+  gcp_state_to_compliance_status: |
+    def gcp_state_to_compliance_status(state):
+        state_map = {
+            'ACTIVE': 'FAILED',
+            'INACTIVE': 'PASSED'
+        }
+        return state_map.get(str(state).upper(), 'WARNING')
+  
+  normalize_timestamp: |
+    def normalize_timestamp(timestamp_str):
+        if not timestamp_str:
+            return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        try:
+            if timestamp_str.endswith('Z'):
+                return timestamp_str
+            elif '+' in timestamp_str or timestamp_str[-6] == '-':
+                dt = datetime.fromisoformat(timestamp_str)
+                return dt.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+            else:
+                return timestamp_str + 'Z'
+        except:
+            return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+  
+  truncate: |
+    def truncate(text, length):
+        if not text:
+            return ''
+        text = str(text)
+        return text[:length] + '...' if len(text) > length else text
+  
+  lower: |
+    def lower(text):
+        if not text:
+            return ''
+        return str(text).lower()
+  
+  replace: |
+    def replace(text, old, new):
+        if not text:
+            return ''
+        return str(text).replace(old, new)
+  
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped
