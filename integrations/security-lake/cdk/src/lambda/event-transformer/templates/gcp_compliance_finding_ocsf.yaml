@@ -75,6 +75,7 @@ template: |
     "type_uid": 200301,
     "type_name": "Compliance Finding: Create",
     "time": {{ extractors.event_time | to_unix_timestamp_ms | default(extractors.create_time | to_unix_timestamp_ms) }},
+    "time_dt": "{{ (extractors.event_time | default(extractors.create_time)) | to_iso_string }}",
     "severity_id": {{ extractors.severity | map_gcp_severity_to_ocsf }},
     "severity": "{{ extractors.severity | format_severity }}",
     "status": "{{ extractors.state | map_gcp_state_to_status }}",
@@ -118,9 +119,18 @@ template: |
       }
     },{% if extractors.compliances %}
     "compliance": {
+      "standards": [
+        {% for compliance in extractors.compliances %}
+        "{{ compliance.standard }}{% if compliance.version %} {{ compliance.version }}{% endif %}"{{ ',' if not loop.last else '' }}
+        {% endfor %}
+      ],
       "requirements": [
         {% for compliance in extractors.compliances %}
-        "{{ compliance.standard }}{% if compliance.version %} {{ compliance.version }}{% endif %}{% if compliance.ids %}: {{ compliance.ids | join(', ') }}{% endif %}"{{ ',' if not loop.last else '' }}
+        {% if compliance.ids %}
+          {% for control_id in compliance.ids %}
+        "{{ control_id }}"{{ ',' if not loop.last else '' }}
+          {% endfor %}
+        {% endif %}
         {% endfor %}
       ],
       "status": "{{ extractors.state | map_compliance_status }}",
@@ -257,6 +267,22 @@ filters:
             return int(dt.timestamp() * 1000)
         except:
             return int(datetime.utcnow().timestamp() * 1000)
+  
+  to_iso_string: |
+    def to_iso_string(timestamp_str):
+        """Convert timestamp to ISO 8601 string format for OpenSearch date fields"""
+        if not timestamp_str:
+            return datetime.utcnow().isoformat() + 'Z'
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return dt.isoformat().replace('+00:00', 'Z')
+        except:
+            return datetime.utcnow().isoformat() + 'Z'
   
   extract_gcp_project_id: |
     def extract_gcp_project_id(resource_name):

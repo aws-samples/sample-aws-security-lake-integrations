@@ -625,6 +625,226 @@ ASFF templates are located in `templates/` directory:
 }
 ```
 
+## Azure Regulatory Compliance Assessment Template
+
+### Overview
+
+The Azure Regulatory Compliance Assessment template ([`regulatory_compliance_assessment_ocsf.yaml`](templates/regulatory_compliance_assessment_ocsf.yaml)) transforms Microsoft Defender for Cloud regulatory compliance events into OCSF v1.1.0 Compliance Finding format (Class 2003). This template enables organizations to track compliance status across multiple regulatory standards including NIST, SOC, PCI-DSS, ISO, and Azure-specific frameworks.
+
+### Supported Event Types
+
+The template handles Azure regulatory compliance assessment events with the following type identifier:
+- `Microsoft.Security/regulatoryComplianceStandards/regulatoryComplianceControls/regulatoryComplianceAssessments`
+
+**Event Type Mapping:**
+```json
+{
+  "azure_compliance_assessment": {
+    "event_type_value": "Microsoft.Security/regulatoryComplianceStandards",
+    "event_type_match_mode": "contains",
+    "ocsf_template": "regulatory_compliance_assessment_ocsf.yaml"
+  }
+}
+```
+
+### Action Mappings
+
+The template supports three Azure action types, each mapped to corresponding OCSF activity IDs:
+
+| Azure Action | OCSF Activity ID | OCSF Activity Name | OCSF Type UID | Description |
+|--------------|------------------|-------------------|---------------|-------------|
+| `Insert` | 1 | Create | 200301 | New compliance assessment created |
+| `Write` | 2 | Update | 200302 | Existing assessment updated |
+| `Delete` | 3 | Delete | 200303 | Assessment removed |
+
+### Custom Filters
+
+The template includes 9 custom filters for comprehensive data transformation:
+
+#### 1. Action Mapping Filters
+
+**`map_action_to_activity_id`**
+- Converts Azure action to OCSF activity_id (1=Create, 2=Update, 3=Delete, 99=Unknown)
+
+**`map_action_to_activity_name`**
+- Maps Azure action to human-readable OCSF activity name
+
+**`map_action_to_type_uid`**
+- Calculates OCSF type_uid as 200300 + activity_id
+
+#### 2. Compliance Status Filters
+
+**`map_compliance_status`**
+- Transforms Azure compliance state to OCSF status string
+- Mappings: Passed→PASSED, Failed→FAILED, Skipped→NOT_APPLICABLE
+
+**`map_compliance_status_id`**
+- Converts compliance state to OCSF status_id (1=Passed, 2=Failed, 99=Skipped)
+
+#### 3. Standard Extraction Filter
+
+**`extract_compliance_standard`**
+- Extracts regulatory standard name from Azure resource ID path
+- Formats kebab-case names to readable format (e.g., "Azure-CSPM" → "Azure CSPM")
+
+#### 4. Resource Count Filter
+
+**`format_resource_count_status`**
+- Formats passed/failed/skipped resource counts into human-readable status detail
+- Example output: "Passed: 10 | Failed: 5 | Skipped: 2"
+
+#### 5. Severity Calculation Filters
+
+**`derive_severity_from_state`**
+- Calculates severity name based on compliance state and failure percentage
+- Passed state: Always "Informational"
+- Failed state: "High" (≥75% failures), "Medium" (≥50%), "Low" (<50%)
+- Unknown/Skipped: "Low"
+
+**`derive_severity_id_from_state`**
+- Maps severity name to OCSF severity_id (1=Informational, 2=Low, 3=Medium, 4=High, 5=Critical)
+
+### Event Structure
+
+#### Input Event Example
+```json
+{
+  "event_data": {
+    "id": "/subscriptions/39b6331a-1dd5-4c5d-b798-817c39b3d58b/providers/Microsoft.Security/regulatoryComplianceStandards/Azure-CSPM/regulatoryComplianceControls/1/regulatoryComplianceAssessments/aafa7d27-01ae-40c6",
+    "name": "aafa7d27-01ae-40c6",
+    "type": "Microsoft.Security/regulatoryComplianceStandards/regulatoryComplianceControls/regulatoryComplianceAssessments",
+    "securityEventDataEnrichment": {
+      "action": "Write",
+      "apiVersion": "2019-01-01-preview",
+      "timestamp": "2025-10-11T12:00:00.0000000Z"
+    },
+    "properties": {
+      "description": "Machines should have vulnerability findings resolved",
+      "state": "Passed",
+      "scope": "Subscription",
+      "passedResources": 10,
+      "failedResources": 0,
+      "skippedResources": 0,
+      "assessmentType": "AssessmentResult",
+      "assessmentDetailsLink": "https://portal.azure.com/#blade/Microsoft_Azure_Security/..."
+    }
+  }
+}
+```
+
+#### OCSF Output Example
+```json
+{
+  "version": "1.1.0",
+  "activity_id": 2,
+  "activity_name": "Update",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2003,
+  "class_name": "Compliance Finding",
+  "type_uid": 200302,
+  "type_name": "Compliance Finding: Update",
+  "severity_id": 1,
+  "severity": "Informational",
+  "status": "PASSED",
+  "status_id": 1,
+  "cloud": {
+    "provider": "Azure",
+    "account": {
+      "uid": "39b6331a-1dd5-4c5d-b798-817c39b3d58b",
+      "type": "Azure Subscription"
+    }
+  },
+  "finding_info": {
+    "uid": "/subscriptions/.../regulatoryComplianceAssessments/aafa7d27-01ae-40c6",
+    "title": "Machines should have vulnerability findings resolved",
+    "desc": "Machines should have vulnerability findings resolved",
+    "src_url": "https://portal.azure.com/#blade/Microsoft_Azure_Security/...",
+    "types": ["AssessmentResult"],
+    "product": {
+      "name": "Microsoft Defender for Cloud",
+      "vendor_name": "Microsoft",
+      "feature": {
+        "name": "Regulatory Compliance Assessment"
+      }
+    }
+  },
+  "compliance": {
+    "status": "PASSED",
+    "status_detail": "Passed: 10",
+    "requirements": ["Azure CSPM"]
+  }
+}
+```
+
+### Key Field Mappings
+
+| Azure Field | OCSF Field | Notes |
+|-------------|------------|-------|
+| `securityEventDataEnrichment.action` | `activity_id` | Mapped via filter |
+| `properties.state` | `status`, `severity_id` | Complex mapping based on resource counts |
+| `properties.assessmentDetailsLink` | `finding_info.src_url` | Direct portal link |
+| `properties.description` | `finding_info.title`, `finding_info.desc` | Assessment description |
+| `id` (resource path) | `compliance.requirements` | Standard name extracted |
+| `properties.passedResources` | `compliance.status_detail` | Formatted with failed/skipped counts |
+| `securityEventDataEnrichment.timestamp` | `time` | Converted to Unix epoch milliseconds |
+
+### Testing
+
+Comprehensive test suite available at [`test_regulatory_compliance_template.py`](test_regulatory_compliance_template.py):
+
+**Test Coverage:**
+- 28 total test cases
+- 9 custom filter tests
+- 3 integration tests with sample events
+- 16 edge case and error handling tests
+
+**Run Tests:**
+```bash
+# From event-transformer directory
+pytest test_regulatory_compliance_template.py -v
+
+# Or use convenience script
+./run_regulatory_compliance_tests.sh
+```
+
+### Configuration Requirements
+
+**Event Type Mapping** ([`event_type_mappings.json`](mapping/event_type_mappings.json)):
+```json
+{
+  "azure_compliance_assessment": {
+    "event_type_key": "type",
+    "event_type_value": "Microsoft.Security/regulatoryComplianceStandards",
+    "event_type_match_mode": "contains",
+    "ocsf_class": "compliance_finding",
+    "ocsf_template": "regulatory_compliance_assessment_ocsf.yaml"
+  }
+}
+```
+
+### Supported Regulatory Standards
+
+The template automatically extracts and formats compliance standard names from Azure resource IDs:
+
+- Azure CSPM (Cloud Security Posture Management)
+- Azure Canada Federal PBMM
+- NIST SP 800-53 R5
+- PCI-DSS v3.2.1
+- ISO 27001:2013
+- SOC 2 Type II
+- HIPAA / HITECH
+- CIS Microsoft Azure Foundations Benchmark
+
+Standard names are automatically converted from kebab-case to readable format.
+
+### Bug Fixes
+
+**Filter Interdependency Issue** (2025-11):
+- Fixed filter registration in [`template_transformer.py`](core/template_transformer.py)
+- Filters now share execution namespace, allowing `derive_severity_id_from_state` to call `derive_severity_from_state`
+- All filters registered before template rendering
+
 ## Helper Modules
 
 ### CloudTrailTransformer

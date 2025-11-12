@@ -33,14 +33,14 @@
     "event_type_value": "Microsoft.Security/regulatoryComplianceStandards/regulatoryComplianceControls/regulatoryComplianceAssessments",
     "event_type_match_mode": "contains",
     "event_source": "azure.securitycenter",
-    "event_name_prefix": "AzureComplianceAssessment",
+    "event_name_prefix": "AzureRegulatoryComplianceAssessment",
     "user_agent": "Microsoft-Security-Center",
     "ocsf_class": "compliance_finding",
-    "ocsf_template": "compliance_assessment_ocsf.yaml",
+    "ocsf_template": "regulatory_compliance_assessment_ocsf.yaml",
     "asff_template": "compliance_assessment_asff.yaml",
     "cloudtrail_template": "generic_cloudtrail.yaml",
-    "asff_product_name": "Microsoft Defender for Cloud - Compliance",
-    "asff_product_id": "azure-compliance-assessment"
+    "asff_product_name": "Microsoft Defender for Cloud - Regulatory Compliance",
+    "asff_product_id": "azure-regulatory-compliance-assessment"
   },
   "azure_security_assessment": {
     "event_type_key": "type",

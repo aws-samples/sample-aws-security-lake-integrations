@@ -1,48 +1,53 @@
-name: "security_assessment_to_ocsf_detection_finding"
+name: "security_assessment_to_ocsf_compliance_finding"
 input_schema: "azure_security_assessment"
-output_schema: "ocsf_detection_finding_v170"
+output_schema: "ocsf_compliance_finding_v110"
 
 # JSONPath expressions to extract data from Azure security assessment events
 extractors:
   # Core Assessment Fields
-  assessment_id: "$.event_data.id"
-  assessment_name: "$.event_data.properties.displayName"
-  assessment_type: "$.event_data.type"
+  assessment_id: "$.body.event_data.id"
+  assessment_name: "$.body.event_data.properties.displayName"
+  assessment_type: "$.body.event_data.type"
+  tenant_id: "$.body.event_data.tenantId"
   
-  # Metadata
-  display_name: "$.event_data.properties.metadata.displayName"
-  description: "$.event_data.properties.metadata.description"
-  severity: "$.event_data.properties.metadata.severity"
-  assessment_type_metadata: "$.event_data.properties.metadata.assessmentType"
+  # Metadata - Primary source of meaningful information
+  display_name: "$.body.event_data.properties.metadata.displayName"
+  description: "$.body.event_data.properties.metadata.description"
+  severity: "$.body.event_data.properties.metadata.severity"
+  assessment_type_metadata: "$.body.event_data.properties.metadata.assessmentType"
   
-  # Status
-  status_code: "$.event_data.properties.status.code"
-  status_cause: "$.event_data.properties.status.cause"
-  status_description: "$.event_data.properties.status.description"
-  status_change_date: "$.event_data.properties.status.statusChangeDate"
-  first_evaluation_date: "$.event_data.properties.status.firstEvaluationDate"
+  # Status - Compliance status indicators
+  status_code: "$.body.event_data.properties.status.code"
+  status_cause: "$.body.event_data.properties.status.cause"
+  status_description: "$.body.event_data.properties.status.description"
+  status_change_date: "$.body.event_data.properties.status.statusChangeDate"
+  first_evaluation_date: "$.body.event_data.properties.status.firstEvaluationDate"
   
-  # Resource Information
-  resource_id: "$.event_data.properties.resourceDetails.id"
-  resource_name: "$.event_data.properties.resourceDetails.resourceName"
-  resource_type: "$.event_data.properties.resourceDetails.resourceType"
-  resource_source: "$.event_data.properties.resourceDetails.source"
+  # Resource Information - What's being assessed
+  resource_id: "$.body.event_data.properties.resourceDetails.id"
+  resource_name: "$.body.event_data.properties.resourceDetails.resourceName"
+  resource_type: "$.body.event_data.properties.resourceDetails.resourceType"
+  resource_source: "$.body.event_data.properties.resourceDetails.Source"
   
-  # Remediation and Policy
-  remediation_description: "$.event_data.properties.metadata.remediationDescription"
-  policy_definition_id: "$.event_data.properties.metadata.policyDefinitionId"
+  # Remediation and Policy - Action guidance
+  remediation_description: "$.body.event_data.properties.metadata.remediationDescription"
+  policy_definition_id: "$.body.event_data.properties.metadata.policyDefinitionId"
   
-  # Categories and Classifications
-  categories: "$.event_data.properties.metadata.categories"
-  tactics: "$.event_data.properties.metadata.tactics"
-  techniques: "$.event_data.properties.metadata.techniques"
+  # Security Classifications - Threat context
+  categories: "$.body.event_data.properties.metadata.categories"
+  threats: "$.body.event_data.properties.metadata.threats"
+  tactics: "$.body.event_data.properties.metadata.tactics"
+  techniques: "$.body.event_data.properties.metadata.techniques"
+  
+  # Azure Portal Link - Direct access for analysts
+  azure_portal_link: "$.body.event_data.properties.links.azurePortal"
   
   # Processing Metadata
   processing_source: "$.processing_metadata.source"
   processor_version: "$.processing_metadata.processor_version"
   processed_timestamp: "$.processing_metadata.processed_timestamp"
 
-# OCSF v1.1.0 compliant template for Detection Finding
+# OCSF v1.1.0 compliant template for Compliance Finding (Class 2003)
 template: |
   {
     "version": "1.1.0",
@@ -50,46 +55,63 @@ template: |
     "activity_name": "Create",
     "category_uid": 2,
     "category_name": "Findings",
-    "class_uid": 2004,
-    "class_name": "Detection Finding",
-    "type_uid": 200401,
-    "type_name": "Detection Finding: Create",
+    "class_uid": 2003,
+    "class_name": "Compliance Finding",
+    "type_uid": 200301,
+    "type_name": "Compliance Finding: Create",
     "time": {{ extractors.status_change_date | to_unix_timestamp_ms }},
-    "severity_id": {{ extractors.severity | map_azure_severity_to_ocsf }},
-    "severity": "{{ extractors.severity | format_severity }}",
-    "status": "{{ extractors.status_code | default('New') }}",
-    "status_id": {{ extractors.status_code | map_alert_status }},
+    "severity_id": {{ extractors.severity | map_azure_severity_to_compliance_ocsf }},
+    "severity": "{{ extractors.severity | default('Medium') }}",
+    "status": "{{ extractors.status_code | map_compliance_status }}",
+    "status_id": {{ extractors.status_code | map_compliance_status_id }},
     "cloud": {
       "provider": "Azure",
       "account": {
-        "uid": "{{ extractors.resource_id | extract_azure_subscription }}",
-        "type": "Azure Subscription",
+        "uid": "{{ extractors.tenant_id | default('') }}",
+        "type": "Azure Tenant",
         "type_id": 10
       },
-      "region": "{{ extractors.resource_id | extract_azure_region }}"
+      "region": "{{ extractors.resource_id | extract_azure_region | default('global') }}"
     },
     "finding_info": {
       "uid": "{{ extractors.assessment_id }}",
-      "title": "{{ extractors.display_name | default(extractors.assessment_name) | default('Azure Security Assessment') | truncate(200) }}",
-      "desc": "{{ extractors.description | default(extractors.status_description) | default('') | json_escape | truncate(1000) }}",
-      "types": ["{{ extractors.assessment_type }}"],
+      "title": "{{ extractors.display_name | default(extractors.assessment_name) | default('Azure Security Assessment') }}",
+      "desc": "{{ extractors.description | default(extractors.status_description) | default('No description available') | json_escape }}",
+      "types": ["{{ extractors.assessment_type_metadata | default('BuiltIn') }}"]{% if extractors.azure_portal_link %},
+      "src_url": "{{ extractors.azure_portal_link }}"{% endif %},
       "created_time": {{ extractors.first_evaluation_date | to_unix_timestamp_ms }},
       "modified_time": {{ extractors.status_change_date | to_unix_timestamp_ms }},
       "product": {
-        "name": "Microsoft Defender for Cloud - Security Assessment",
+        "name": "Microsoft Defender for Cloud",
         "vendor_name": "Microsoft",
-        "version": "1.0"
-      }
-    }{% if extractors.tactics %},
+        "version": "1.0",
+        "feature": {
+          "name": "Security Assessment",
+          "uid": "{{ extractors.assessment_type }}"
+        }
+      }{% if extractors.remediation_description %},
+      "remediation": {
+        "desc": "{{ extractors.remediation_description | json_escape }}",
+        "kb_articles": []
+      }{% endif %}
+    },
+    "compliance": {
+      "status": "{{ extractors.status_code | map_compliance_status }}",
+      "status_detail": "{{ extractors.status_description | default('') | json_escape }}"{% if extractors.remediation_description %},
+      "requirements": ["{{ extractors.remediation_description | json_escape }}"]{% endif %}{% if extractors.categories %},
+      "controls": {{ extractors.categories | to_json }}{% endif %}
+    }{% if extractors.threats or extractors.categories %},
+    "category_name": "{{ extractors.categories[0] | default('Security') }}"{% endif %}{% if extractors.tactics %},
     "attacks": [
       {% for tactic in extractors.tactics %}
       {
         "tactic": {
           "name": "{{ tactic }}",
-          "uid": "{{ tactic | map_mitre_tactic }}"
-        }{% if extractors.techniques %},
+          "uid": "{{ tactic | slugify }}"
+        }{% if extractors.techniques and extractors.techniques[loop.index0] %},
         "technique": {
-          "name": "{{ extractors.techniques[loop.index0] | default('') }}"
+          "name": "{{ extractors.techniques[loop.index0] }}",
+          "uid": "{{ extractors.techniques[loop.index0] | slugify }}"
         }{% endif %}
       }{{ ',' if not loop.last else '' }}
       {% endfor %}
@@ -97,30 +119,45 @@ template: |
     "resources": [
       {
         "uid": "{{ extractors.resource_id }}",
-        "name": "{{ extractors.resource_name | default('') }}",
-        "type": "{{ extractors.resource_type | default('') }}",
+        "name": "{{ extractors.resource_name | default('Unknown Resource') }}",
+        "type": "{{ extractors.resource_type | default('Azure Resource') }}",
         "cloud_partition": "azure-commercial",
-        "region": "{{ extractors.resource_id | extract_azure_region }}",
-        "role_id": 3,
-        "role": "Affected"
+        "region": "{{ extractors.resource_id | extract_azure_region | default('global') }}",
+        "labels": ["compliance", "security-assessment"]
       }
-    ]{% endif %}{% if extractors.remediation_description %},
-    "remediation": {
-      "desc": "{{ extractors.remediation_description | json_escape | truncate(500) }}"
-    }{% endif %},
+    ]{% endif %}{% if extractors.threats %},
+    "observables": [
+      {% for threat in extractors.threats %}
+      {
+        "name": "threat_category",
+        "type": "Other",
+        "type_id": 99,
+        "value": "{{ threat }}"
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ]{% endif %},
     "metadata": {
       "version": "1.1.0",
       "product": {
         "name": "Microsoft Defender for Cloud - Security Assessment",
         "vendor_name": "Microsoft",
-        "version": "1.0"
+        "version": "1.0",
+        "lang": "en",
+        "url_string": "{{ extractors.azure_portal_link | default('') }}"
       },
-      "profiles": ["security_control"],
+      "profiles": ["security_control", "cloud"],
       "event_code": "{{ extractors.assessment_type }}"{% if extractors.processed_timestamp %},
       "logged_time": {{ extractors.processed_timestamp | to_unix_timestamp_ms }}{% endif %},
-      "original_time": {{ extractors.first_evaluation_date | to_unix_timestamp_ms }}
+      "original_time": {{ extractors.first_evaluation_date | to_unix_timestamp_ms }}{% if extractors.policy_definition_id %},
+      "correlation_uid": "{{ extractors.policy_definition_id }}"{% endif %}
     },
-    "raw_data": {{ azure_event | to_json }}
+    "unmapped": {
+      "azure_tenant_id": "{{ extractors.tenant_id | default('') }}",
+      "assessment_type": "{{ extractors.assessment_type_metadata | default('') }}",
+      "policy_definition_id": "{{ extractors.policy_definition_id | default('') }}",
+      "status_cause": "{{ extractors.status_cause | default('') }}"
+    },
+    "raw_data": "{{ body | to_json | json_escape }}"
   }
 
 # Additional filters for OCSF compliance

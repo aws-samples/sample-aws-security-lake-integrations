@@ -996,6 +996,10 @@ class TemplateTransformer:
                 except Exception as e:
                     self.logger.error(f"Failed to execute filter code for {filter_name}: {str(e)}")
             
+            # CRITICAL: Make all loaded filters available to each other by updating exec_globals
+            # This allows filter functions to call other filter functions (interdependencies)
+            exec_globals.update(exec_locals)
+            
             # Now register all successfully executed filters with Jinja2
             for filter_name in filters_dict.keys():
                 if filter_name in exec_locals:

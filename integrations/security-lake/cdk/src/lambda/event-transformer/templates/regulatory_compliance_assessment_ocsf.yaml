@@ -1,0 +1,335 @@
+# © 2025 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
+name: "azure_regulatory_compliance_assessment_to_ocsf"
+input_schema: "azure_regulatory_compliance_assessment"
+output_schema: "ocsf_compliance_finding_v110"
+
+# JSONPath expressions to extract data from Azure regulatory compliance assessment events
+extractors:
+  # Core event fields
+  event_id: "$.event_data.id"
+  event_name: "$.event_data.name"
+  event_type: "$.event_data.type"
+  
+  # Action and timing
+  action: "$.event_data.securityEventDataEnrichment.action"
+  api_version: "$.event_data.securityEventDataEnrichment.apiVersion"
+  enrichment_timestamp: "$.event_data.securityEventDataEnrichment.timestamp"
+  
+  # Compliance assessment properties
+  description: "$.event_data.properties.description"
+  state: "$.event_data.properties.state"
+  scope: "$.event_data.properties.scope"
+  passed_resources: "$.event_data.properties.passedResources"
+  failed_resources: "$.event_data.properties.failedResources"
+  skipped_resources: "$.event_data.properties.skippedResources"
+  assessment_type: "$.event_data.properties.assessmentType"
+  assessment_details_link: "$.event_data.properties.assessmentDetailsLink"
+  
+  # Resource details (for assessments with resourceDetails)
+  resource_id: "$.event_data.properties.resourceDetails.id"
+  resource_name: "$.event_data.properties.resourceDetails.resourceName"
+  resource_type: "$.event_data.properties.resourceDetails.resourceType"
+  resource_provider: "$.event_data.properties.resourceDetails.resourceProvider"
+
+# OCSF v1.1.0 compliant template for Compliance Finding (Class 2003)
+template: |
+  {
+    "version": "1.1.0",
+    "activity_id": {{ extractors.action | map_action_to_activity_id }},
+    "activity_name": "{{ extractors.action | map_action_to_activity_name }}",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2003,
+    "class_name": "Compliance Finding",
+    "type_uid": {{ extractors.action | map_action_to_type_uid }},
+    "type_name": "Compliance Finding: {{ extractors.action | map_action_to_activity_name }}",
+    "time": {{ extractors.enrichment_timestamp | to_unix_timestamp_ms }},
+    "time_dt": "{{ extractors.enrichment_timestamp | to_iso_string }}",
+    "severity_id": {{ extractors.state | derive_severity_id_from_state(extractors.failed_resources, extractors.passed_resources) }},
+    "severity": "{{ extractors.state | derive_severity_from_state(extractors.failed_resources, extractors.passed_resources) }}",
+    "status": "{{ extractors.state | map_compliance_status }}",
+    "status_id": {{ extractors.state | map_compliance_status_id }},
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.event_id | extract_subscription_id }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      },
+      "region": "global"
+    },
+    "finding_info": {
+      "uid": "{{ extractors.event_id }}",
+      "title": "{{ extractors.description | default('Azure Regulatory Compliance Assessment') }}",
+      "desc": "{{ extractors.description | default('No description available') | json_escape }}"{% if extractors.assessment_details_link %},
+      "src_url": "{{ extractors.assessment_details_link }}"{% endif %},
+      "created_time": {{ extractors.enrichment_timestamp | to_unix_timestamp_ms }},
+      "modified_time": {{ extractors.enrichment_timestamp | to_unix_timestamp_ms }},
+      "types": ["{{ extractors.assessment_type | default('RegulatoryCompliance') }}"],
+      "product": {
+        "name": "Microsoft Defender for Cloud",
+        "vendor_name": "Microsoft",
+        "version": "{{ extractors.api_version | default('1.0') }}",
+        "feature": {
+          "name": "Regulatory Compliance Assessment",
+          "uid": "{{ extractors.event_type }}"
+        }
+      }
+    },
+    "compliance": {
+      "status": "{{ extractors.state | map_compliance_status }}",
+      "status_detail": "{{ extractors | format_resource_count_status | json_escape }}",
+      "requirements": ["{{ extractors.event_id | extract_control_name }}"],
+      "standards": ["{{ extractors.event_id | extract_compliance_standard }}"]
+    },
+    "resources": [
+      {
+        "uid": "{{ extractors.resource_id | default(extractors.event_id) }}",
+        "name": "{{ extractors.resource_name | default(extractors.event_id | extract_control_name) }}",
+        "type": "{{ extractors.resource_type | default('Compliance Assessment') }}",
+        "cloud_partition": "azure-commercial",
+        "region": "global",
+        "labels": ["compliance", "regulatory", "{{ extractors.scope | default('Subscription') | lower }}"]{% if extractors.resource_provider %},
+        "data": {
+          "provider": "{{ extractors.resource_provider }}"
+        }{% endif %}
+      }
+    ],
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Microsoft Defender for Cloud - Regulatory Compliance",
+        "vendor_name": "Microsoft",
+        "version": "{{ extractors.api_version | default('1.0') }}",
+        "lang": "en",
+        "url_string": "{{ extractors.assessment_details_link | default('') }}"
+      },
+      "profiles": ["security_control", "cloud"],
+      "event_code": "{{ extractors.event_type }}",
+      "logged_time": {{ extractors.enrichment_timestamp | to_unix_timestamp_ms }},
+      "original_time": {{ extractors.enrichment_timestamp | to_unix_timestamp_ms }}
+    },
+    "unmapped": {
+      "action": "{{ extractors.action }}",
+      "assessment_type": "{{ extractors.assessment_type | default('') }}",
+      "scope": "{{ extractors.scope | default('') }}",
+      "api_version": "{{ extractors.api_version | default('') }}"
+    },
+    "raw_data": "{{ azure_event | to_json | json_escape }}"
+  }
+
+# Custom filters for regulatory compliance assessment transformation
+filters:
+  map_action_to_activity_id: |
+    def map_action_to_activity_id(action):
+        """Map Azure action to OCSF activity_id"""
+        if not action or not isinstance(action, str):
+            return 99
+        mapping = {
+            'Insert': 1,  # Create
+            'Write': 2,   # Update
+            'Delete': 3   # Delete
+        }
+        return mapping.get(action, 99)
+  
+  map_action_to_activity_name: |
+    def map_action_to_activity_name(action):
+        """Map Azure action to OCSF activity_name"""
+        if not action or not isinstance(action, str):
+            return 'Unknown'
+        mapping = {
+            'Insert': 'Create',
+            'Write': 'Update',
+            'Delete': 'Delete'
+        }
+        return mapping.get(action, 'Unknown')
+  
+  map_action_to_type_uid: |
+    def map_action_to_type_uid(action):
+        """Map Azure action to OCSF type_uid (200300 + activity_id)"""
+        activity_id = map_action_to_activity_id(action)
+        return 200300 + activity_id
+  
+  map_compliance_status: |
+    def map_compliance_status(state):
+        """Map Azure compliance state to OCSF status string"""
+        if not state or not isinstance(state, str):
+            return 'Unknown'
+        mapping = {
+            'Passed': 'PASSED',
+            'Failed': 'FAILED',
+            'Skipped': 'NOT_APPLICABLE',
+            'NotApplicable': 'NOT_APPLICABLE',
+            'Unknown': 'Unknown'
+        }
+        return mapping.get(state, 'Unknown')
+  
+  map_compliance_status_id: |
+    def map_compliance_status_id(state):
+        """Map Azure compliance state to OCSF status_id"""
+        if not state or not isinstance(state, str):
+            return 0
+        mapping = {
+            'Passed': 1,
+            'Failed': 2,
+            'Skipped': 99,
+            'NotApplicable': 99,
+            'Unknown': 0
+        }
+        return mapping.get(state, 0)
+  
+  extract_compliance_standard: |
+    def extract_compliance_standard(event_id):
+        """Extract compliance standard name from Azure resource ID path"""
+        if not event_id or not isinstance(event_id, str):
+            return 'Unknown Standard'
+        try:
+            # Format: /subscriptions/.../providers/Microsoft.Security/regulatoryComplianceStandards/STANDARD_NAME/...
+            parts = event_id.split('/')
+            for i, part in enumerate(parts):
+                if part == 'regulatoryComplianceStandards' and i + 1 < len(parts):
+                    standard_name = parts[i + 1]
+                    # Convert kebab-case to readable format
+                    return standard_name.replace('-', ' ').replace('.', ' ')
+            return 'Unknown Standard'
+        except Exception:
+            return 'Unknown Standard'
+  
+  extract_control_name: |
+    def extract_control_name(event_id):
+        """Extract compliance control name from Azure resource ID path"""
+        if not event_id or not isinstance(event_id, str):
+            return 'Unknown Control'
+        try:
+            # Format: /subscriptions/.../regulatoryComplianceControls/CONTROL_NAME/regulatoryComplianceAssessments/...
+            parts = event_id.split('/')
+            for i, part in enumerate(parts):
+                if part == 'regulatoryComplianceControls' and i + 1 < len(parts):
+                    control_name = parts[i + 1]
+                    return control_name
+            return 'Unknown Control'
+        except Exception:
+            return 'Unknown Control'
+  
+  format_resource_count_status: |
+    def format_resource_count_status(extractors):
+        """Format resource counts into status detail string"""
+        try:
+            passed = extractors.get('passed_resources', 0)
+            failed = extractors.get('failed_resources', 0)
+            skipped = extractors.get('skipped_resources', 0)
+            
+            # Handle None values
+            passed = passed if passed is not None else 0
+            failed = failed if failed is not None else 0
+            skipped = skipped if skipped is not None else 0
+            
+            parts = []
+            if passed > 0:
+                parts.append(f"Passed: {passed}")
+            if failed > 0:
+                parts.append(f"Failed: {failed}")
+            if skipped > 0:
+                parts.append(f"Skipped: {skipped}")
+            
+            if parts:
+                return " | ".join(parts)
+            else:
+                return "No resource counts available"
+        except Exception:
+            return "Resource count format error"
+  
+  derive_severity_from_state: |
+    def derive_severity_from_state(state, failed_count, passed_count):
+        """Calculate severity name based on compliance state and resource counts"""
+        if not state or not isinstance(state, str):
+            return 'Medium'
+        
+        # Passed state is always informational
+        if state == 'Passed':
+            return 'Informational'
+        
+        # For failed state, use resource counts to determine severity
+        if state == 'Failed':
+            try:
+                failed = int(failed_count) if failed_count is not None else 0
+                passed = int(passed_count) if passed_count is not None else 0
+                total = failed + passed
+                
+                if total == 0:
+                    return 'Medium'
+                
+                # Calculate failure percentage
+                fail_percentage = (failed / total) * 100
+                
+                if fail_percentage >= 75:
+                    return 'High'
+                elif fail_percentage >= 50:
+                    return 'Medium'
+                elif fail_percentage >= 25:
+                    return 'Low'
+                else:
+                    return 'Low'
+            except (ValueError, TypeError, ZeroDivisionError):
+                return 'Medium'
+        
+        # For skipped or unknown
+        return 'Low'
+  
+  derive_severity_id_from_state: |
+    def derive_severity_id_from_state(state, failed_count, passed_count):
+        """Calculate severity ID based on compliance state and resource counts"""
+        severity_name = derive_severity_from_state(state, failed_count, passed_count)
+        mapping = {
+            'Informational': 1,
+            'Low': 2,
+            'Medium': 3,
+            'High': 4,
+            'Critical': 5
+        }
+        return mapping.get(severity_name, 3)
+  
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        """Convert ISO timestamp to Unix epoch milliseconds"""
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00' if 'T' in timestamp_str else timestamp_str)
+            return int(dt.timestamp() * 1000)
+        except:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  to_iso_string: |
+    def to_iso_string(timestamp_str):
+        """Convert timestamp to ISO 8601 string format for OpenSearch date fields"""
+        if not timestamp_str:
+            return datetime.utcnow().isoformat() + 'Z'
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00' if 'T' in timestamp_str else timestamp_str)
+            return dt.isoformat().replace('+00:00', 'Z')
+        except:
+            return datetime.utcnow().isoformat() + 'Z'
+  
+  json_escape: |
+    def json_escape(text):
+        """Escape string for JSON"""
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped

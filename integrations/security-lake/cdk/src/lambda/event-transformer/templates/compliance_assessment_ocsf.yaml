@@ -53,6 +53,7 @@ template: |
     "type_uid": 200301,
     "type_name": "Compliance Finding: Create",
     "time": {{ (extractors.status_change_date or extractors.first_evaluation_date or extractors.enrichment_timestamp or extractors.enqueued_time or extractors.processed_timestamp) | to_unix_timestamp_ms }},
+    "time_dt": "{{ (extractors.status_change_date or extractors.first_evaluation_date or extractors.enrichment_timestamp or extractors.enqueued_time or extractors.processed_timestamp) | to_iso_string }}",
     "severity_id": {% if extractors.severity == "High" %}4{% elif extractors.severity == "Medium" %}3{% elif extractors.severity == "Low" %}2{% else %}1{% endif %},
     "severity": "{{ extractors.severity | default('Informational') }}",
     "status": "New",
@@ -133,6 +134,23 @@ filters:
             return int(dt.timestamp() * 1000)
         except Exception:
             return int(datetime.utcnow().timestamp() * 1000)
+  
+  to_iso_string: |
+    def to_iso_string(timestamp_str):
+        """Convert timestamp to ISO 8601 string format for OpenSearch date fields"""
+        from datetime import datetime
+        if not timestamp_str:
+            return datetime.utcnow().isoformat() + 'Z'
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return dt.isoformat().replace('+00:00', 'Z')
+        except Exception:
+            return datetime.utcnow().isoformat() + 'Z'
   
   extract_subscription_id: |
     def extract_subscription_id(resource_id):
