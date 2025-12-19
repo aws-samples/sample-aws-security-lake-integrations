@@ -1,0 +1,19 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+# Development dependencies for OpenSearch Workspace Creator Lambda testing
+# Install with: pip install -r requirements-dev.txt
+
+# Testing framework
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+
+# AWS mocking library
+moto>=4.0.0
+
+# Additional testing utilities
+responses>=0.23.0
+
+# Include production dependencies
+-r requirements.txt

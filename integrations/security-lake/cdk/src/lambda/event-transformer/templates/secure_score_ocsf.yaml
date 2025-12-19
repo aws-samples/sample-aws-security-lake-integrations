@@ -68,17 +68,15 @@ template: |
       "requirements": ["Azure Security Center Compliance Check"],
       "status": "Evaluated"
     },
-    "resources": [
-      {
-        "uid": "{{ extractors.event_id }}",
-        "name": "{{ extractors.resource_name | default('unknown') | json_escape | truncate(100) }}",
-        "type": "Azure Security Control",
-        "cloud_partition": "azure-commercial",
-        "region": "unknown",
-        "role_id": 3,
-        "role": "Affected"
-      }
-    ],
+    "resources": {
+      "uid": "{{ extractors.event_id | default('None') }}",
+      "name": "{{ extractors.resource_name | default('unknown') | json_escape | truncate(100) }}",
+      "type": "Azure Security Control",
+      "cloud_partition": "azure-commercial",
+      "region": "unknown",
+      "role_id": 3,
+      "role": "Affected"
+    },
     "metadata": {
       "version": "1.1.0",
       "product": {

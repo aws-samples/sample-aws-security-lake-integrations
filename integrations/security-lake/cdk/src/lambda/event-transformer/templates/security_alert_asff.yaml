@@ -55,6 +55,13 @@ template: |
       "Label": "{{ extractors.severity | asff_severity_label }}",
       "Normalized": {{ extractors.severity | asff_severity_normalized }}
     },
+    "FindingProviderFields": {
+      "Types": {{ extractors.alert_type | to_asff_types }},
+      "Severity": {
+        "Label": "{{ extractors.severity | asff_severity_label }}",
+        "Original": "{{ extractors.severity | upper }}"
+      }
+    },
     "Title": "{{ extractors.alert_title | default('Azure Security Alert') | truncate(200) }}",
     "Description": "{{ extractors.description | default('No description available') | truncate(1024) }}",
     "Remediation": {
@@ -69,7 +76,7 @@ template: |
       "azure/subscriptionId": "{{ extractors.subscription_id | default('Unknown') }}",
       "azure/resourceGroup": "{{ extractors.resource_group | default('Unknown') }}",
       "azure/status": "{{ extractors.status | default('New') }}",
-      "aws/securityhub/FindingId": "{{ extractors.alert_id }}",
+      "aws/securityhub/FindingId": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default/{{ extractors.alert_id | default(generate_uuid()) }}",
       "aws/securityhub/ProductName": "Microsoft Defender for Cloud",
       "aws/securityhub/CompanyName": "Microsoft"
     },
@@ -88,6 +95,8 @@ template: |
         }
       }
     ],
+    "Workflow": {"Status": "NEW"},
+    "Region": "{{ aws_region }}",
     "WorkflowState": "NEW",
     "RecordState": "ACTIVE"
   }

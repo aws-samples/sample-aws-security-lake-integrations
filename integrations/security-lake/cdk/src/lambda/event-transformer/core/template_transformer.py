@@ -6,6 +6,7 @@ Replaces hardcoded CloudTrailEventBuilder methods with flexible templates
 import json
 import logging
 import os
+import re
 import uuid
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
@@ -193,7 +194,14 @@ class TemplateEngine:
             
             # IP address filtering (strip port numbers)
             'extract_ip': self._extract_ip_from_address,
-            'extract_port': self._extract_port_from_address
+            'extract_port': self._extract_port_from_address,
+            
+            # OCSF Compliance status mapping filters
+            'map_compliance_status': self._map_compliance_status,
+            'map_compliance_status_id': self._map_compliance_status_id,
+            
+            # Text transformation filters
+            'slugify': self._slugify
         }
     def _add_one_second(self, timestamp_str: str) -> str:
         """Add 1 second to an ISO8601 timestamp string"""
@@ -737,6 +745,102 @@ class TemplateEngine:
         # Multiple colons without brackets = pure IPv6, no port
         return None
     
+    def _map_compliance_status(self, status_code: str) -> str:
+        """
+        Map Azure assessment status codes to OCSF compliance status strings.
+        
+        Args:
+            status_code: Azure status code (e.g., 'Healthy', 'Unhealthy', 'NotApplicable')
+            
+        Returns:
+            OCSF compliance status string ('Pass', 'Fail', 'Skip', 'Unknown')
+        """
+        if not status_code or not isinstance(status_code, str):
+            return 'Unknown'
+        
+        status_mapping = {
+            'healthy': 'Pass',
+            'unhealthy': 'Fail',
+            'notapplicable': 'Skip',
+            'not_applicable': 'Skip',
+            'unknown': 'Unknown',
+            # Additional status codes that might appear
+            'low': 'Pass',
+            'medium': 'Fail',
+            'high': 'Fail',
+            'critical': 'Fail',
+        }
+        return status_mapping.get(status_code.lower(), 'Unknown')
+    
+    def _map_compliance_status_id(self, status_code: str) -> int:
+        """
+        Map Azure assessment status codes to OCSF status_id integers.
+        
+        OCSF Compliance Finding status_id values:
+            1 = Pass
+            2 = Fail
+            3 = Skip/NotApplicable
+            99 = Unknown/Other
+        
+        Args:
+            status_code: Azure status code (e.g., 'Healthy', 'Unhealthy', 'NotApplicable')
+            
+        Returns:
+            OCSF status_id integer (1=Pass, 2=Fail, 3=Skip, 99=Unknown)
+        """
+        if not status_code or not isinstance(status_code, str):
+            return 99  # Unknown
+        
+        status_id_mapping = {
+            'healthy': 1,       # Pass
+            'unhealthy': 2,     # Fail
+            'notapplicable': 3, # Skip
+            'not_applicable': 3, # Skip
+            'unknown': 99,      # Unknown
+            # Additional status codes that might appear
+            'low': 1,           # Pass (low severity = acceptable)
+            'medium': 2,        # Fail
+            'high': 2,          # Fail
+            'critical': 2,      # Fail
+        }
+        return status_id_mapping.get(status_code.lower(), 99)
+    
+    def _slugify(self, text: Any) -> str:
+        """
+        Convert text to URL-safe slug format for UIDs.
+        
+        Args:
+            text: Input text to convert (e.g., "Defense Evasion")
+            
+        Returns:
+            URL-safe slug (e.g., "defense-evasion")
+        """
+        if text is None:
+            return ''
+        
+        # Convert to string if not already
+        if not isinstance(text, str):
+            text = str(text)
+        
+        # Handle empty string
+        if not text.strip():
+            return ''
+        
+        # Convert to lowercase
+        slug = text.lower()
+        
+        # Replace spaces and special characters with hyphens
+        # Keep only alphanumeric characters and hyphens
+        slug = re.sub(r'[^a-z0-9]+', '-', slug)
+        
+        # Remove leading/trailing hyphens
+        slug = slug.strip('-')
+        
+        # Remove consecutive hyphens
+        slug = re.sub(r'-+', '-', slug)
+        
+        return slug
+    
     def _json_escape_string(self, text: str) -> str:
         """
         Properly escape a string for JSON by handling all control characters
@@ -776,13 +880,8 @@ class TemplateEngine:
             
             rendered = template.render(**context)
             
-            # DEBUG: Log rendered template length and first few lines for structure analysis
-            newline_char = '\n'  # Extract backslash to variable for f-string compatibility
-            lines = rendered.split(newline_char)[:10]  # First 10 lines
-            line_count = len(rendered.split(newline_char))
-            self.logger.debug(f"JINJA2 DEBUG - Rendered template has {len(rendered)} chars, {line_count} lines")
-            formatted_lines = newline_char.join(f"{i+1:2}: {line}" for i, line in enumerate(lines))
-            self.logger.debug(f"JINJA2 DEBUG - First 10 lines:{newline_char}{formatted_lines}")
+            # DEBUG: Log rendered template summary (single-line for CloudWatch compatibility)
+            self.logger.debug(f"JINJA2 DEBUG - Rendered template: {len(rendered)} chars")
             
             return rendered
             
@@ -860,12 +959,12 @@ class TemplateTransformer:
             # Render template
             rendered_json = self.template_engine.render_template(template.template, context)
             
-            # DEBUG: Log extracted data to understand what's being passed to template
-            self.logger.debug(f"TEMPLATE DEBUG - Extracted data for {event_type}: {json.dumps(extracted_data, default=str, indent=2)}")
+            # DEBUG: Log extracted data summary (single-line, no indent for CloudWatch compatibility)
+            self.logger.debug(f"TEMPLATE DEBUG - Extracted data for {event_type}: {json.dumps(extracted_data, default=str)}")
             
-            # DEBUG: Log template rendering context
+            # DEBUG: Log template rendering context (single-line, no indent)
             context_debug = {k: v for k, v in context.items() if k != 'azure_event'}  # Exclude raw event for brevity
-            self.logger.debug(f"TEMPLATE DEBUG - Template context: {json.dumps(context_debug, default=str, indent=2)}")
+            self.logger.debug(f"TEMPLATE DEBUG - Template context: {json.dumps(context_debug, default=str)}")
             
             # Parse rendered JSON
             try:
@@ -896,8 +995,8 @@ class TemplateTransformer:
                         pointer = ' ' * (error_col + 10) + '^'  # 10 chars for line number prefix
                         self.logger.error(f"     Col {error_col+1:3}: {pointer}")
                 
-                # Also log full template for complete debugging
-                self.logger.debug(f"FULL RENDERED TEMPLATE:\n{rendered_json}")
+                # Also log full template for complete debugging (truncated for CloudWatch compatibility)
+                self.logger.debug(f"FULL RENDERED TEMPLATE (first 1000 chars): {rendered_json[:1000]}...")
                 
                 # Show specific character around error position
                 char_start = max(0, 5394 - 100)
@@ -931,9 +1030,9 @@ class TemplateTransformer:
                                 self.logger.warning(f"OCSF Warning: {warning}")
                     else:
                         self.logger.error("=== OCSF VALIDATION: FAILED ===")
-                        self.logger.error(f"❌ Invalid OCSF event (class_uid: {validation_result.get('class_uid', 'unknown')})")
+                        self.logger.error(f"Invalid OCSF event (class_uid: {validation_result.get('class_uid', 'unknown')})")
                         for error in validation_result['errors']:
-                            self.logger.error(f"❌ OCSF Error: {error}")
+                            self.logger.error(f"OCSF Error: {error}")
                         for warning in validation_result['warnings']:
                             self.logger.warning(f"OCSF Warning: {warning}")
                 else:

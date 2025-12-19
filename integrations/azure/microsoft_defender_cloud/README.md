@@ -224,7 +224,7 @@ This configures:
 
 ### Security Lake and CloudTrail Integration
 - **CloudTrail Compatibility**: Events stored in native CloudTrail format for Athena-based analytics
-- **Security Lake OCSF Support**: Optional transformation to OCSF v1.7.0 for AWS Security Lake integration
+- **Security Lake OCSF Support**: Optional transformation to OCSF v1.1.0 for AWS Security Lake integration
 - **ASFF Format Support**: AWS Security Hub integration with Security Finding Format v2018-10-08
 - **Unified Analysis**: Integration with existing AWS security analytics and SIEM solutions
 - **Standard Tooling**: Compatible with existing AWS security tools and workflows
@@ -384,7 +384,7 @@ aws cloudtrail start-query \
 - **Python Runtime**: 3.13 (ARM64)
 - **CDK Version**: 2.95.1+
 - **Terraform Version**: >= 1.0
-- **OCSF Schema Version**: 1.7.0
+- **OCSF Schema Version**: 1.1.0
 - **ASFF Schema Version**: 2018-10-08
 
 ## Quick Start

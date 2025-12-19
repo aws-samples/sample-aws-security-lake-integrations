@@ -55,7 +55,3 @@ template: |
     },
     "id": "{{ extractors.event_id | default(generate_uuid()) }}"
   }
-
-# Optional custom filters for this template
-filters:
-  truncate: "lambda s, length: s[:length] + '...' if len(s) > length else s"

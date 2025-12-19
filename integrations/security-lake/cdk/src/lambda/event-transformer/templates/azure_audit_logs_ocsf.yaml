@@ -1,0 +1,250 @@
+name: "azure_audit_logs_to_ocsf_api_activity"
+input_schema: "azure_audit_logs"
+output_schema: "ocsf_api_activity_v110"
+
+# JSONPath extractors for Azure AD Audit Logs
+extractors:
+  # Core timestamps
+  time: "$.event_data.time"
+  
+  # Activity details
+  operation_name: "$.event_data.operationName"
+  activity_display_name: "$.event_data.properties.activityDisplayName"
+  category: "$.event_data.category"
+  activity_category: "$.event_data.properties.category"
+  result: "$.event_data.properties.result"
+  result_reason: "$.event_data.properties.resultReason"
+  
+  # Target resources
+  target_resources: "$.event_data.properties.targetResources"
+  
+  # Initiated by (actor)
+  initiated_by_user: "$.event_data.properties.initiatedBy.user"
+  initiated_by_app: "$.event_data.properties.initiatedBy.app"
+  
+  # User details
+  user_principal_name: "$.event_data.properties.initiatedBy.user.userPrincipalName"
+  user_id: "$.event_data.properties.initiatedBy.user.id"
+  user_ip_address: "$.event_data.properties.initiatedBy.user.ipAddress"
+  
+  # App details
+  app_id: "$.event_data.properties.initiatedBy.app.appId"
+  app_display_name: "$.event_data.properties.initiatedBy.app.displayName"
+  app_service_principal_id: "$.event_data.properties.initiatedBy.app.servicePrincipalId"
+  
+  # Tenant and correlation
+  tenant_id: "$.event_data.tenantId"
+  correlation_id: "$.event_data.correlationId"
+  
+  # Additional context
+  additional_details: "$.event_data.properties.additionalDetails"
+  logged_by_service: "$.event_data.properties.loggedByService"
+
+# OCSF v1.1.0 API Activity template (class_uid: 6003)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 6003,
+    "class_name": "API Activity",
+    "category_uid": 6,
+    "category_name": "Application Activity",
+    "activity_id": {{ extractors.operation_name | derive_activity_id }},
+    "activity_name": "{{ extractors.activity_display_name | default(extractors.operation_name) | derive_activity_name }}",
+    "type_uid": {{ 600300 + (extractors.operation_name | derive_activity_id) }},
+    "type_name": "API Activity: {{ extractors.activity_display_name | default(extractors.operation_name) | derive_activity_name }}",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": {% if extractors.result == 'failure' or extractors.result == 'Failed' %}3{% else %}1{% endif %},
+    "severity": "{% if extractors.result == 'failure' or extractors.result == 'Failed' %}Medium{% else %}Informational{% endif %}",
+    "status": "{% if extractors.result == 'success' or extractors.result == 'Success' %}Success{% elif extractors.result == 'failure' or extractors.result == 'Failed' %}Failure{% else %}Unknown{% endif %}",
+    "status_id": {% if extractors.result == 'success' or extractors.result == 'Success' %}1{% elif extractors.result == 'failure' or extractors.result == 'Failed' %}2{% else %}0{% endif %},
+    "status_detail": "{{ extractors.result_reason | default('') | json_escape }}",
+    "message": "Azure AD Audit: {{ extractors.activity_display_name | default(extractors.operation_name) }} - {{ extractors.result | default('Unknown') }}",
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Azure Active Directory",
+        "vendor_name": "Microsoft",
+        "feature": {
+          "name": "Audit Logs"
+        }
+      },
+      "profiles": ["cloud", "datetime"],
+      "uid": "{{ extractors.correlation_id }}",
+      "correlation_uid": "{{ extractors.correlation_id }}",
+      "original_time": "{{ extractors.time }}",
+      "logged_time": {{ extractors.time | to_unix_timestamp_ms }}
+    },
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.tenant_id }}",
+        "type": "Azure AD Tenant",
+        "type_id": 10
+      }
+    },
+    "api": {
+      "operation": "{{ extractors.operation_name | default('Unknown') }}",
+      "service": {
+        "name": "{{ extractors.logged_by_service | default('Azure Active Directory') }}"
+      },
+      "request": {
+        "uid": "{{ extractors.correlation_id }}"
+      },
+      "response": {
+        "code": {% if extractors.result == 'success' or extractors.result == 'Success' %}200{% elif extractors.result == 'failure' or extractors.result == 'Failed' %}400{% else %}0{% endif %}
+      }
+    },
+    "actor": {
+      {% if extractors.initiated_by_user %}
+      "user": {
+        "uid": "{{ extractors.user_id | default('') | format_uid }}",
+        "name": "{{ extractors.user_principal_name | default('Unknown User') | json_escape }}",
+        "email_addr": "{{ extractors.user_principal_name | default('') }}",
+        "type": "User",
+        "type_id": 1
+      }
+      {% elif extractors.initiated_by_app %},
+      "user": {
+        "uid": "{{ extractors.app_service_principal_id | default(extractors.app_id) | format_uid }}",
+        "name": "{{ extractors.app_display_name | default('Unknown Application') | json_escape }}",
+        "type": "ServicePrincipal",
+        "type_id": 3
+      },
+      {% else %}
+      "user": {
+        "uid": "unknown",
+        "name": "Unknown Actor",
+        "type": "Unknown",
+        "type_id": 0
+      },
+      {% endif %}
+      "idp": {
+        "uid": "{{ extractors.tenant_id }}"
+      }{% if extractors.app_id %},
+      "app_uid": "{{ extractors.app_id | default('') }}"{% endif %}
+    },
+    "src_endpoint": {
+      {% if extractors.user_ip_address | is_valid %}"ip": "{{ extractors.user_ip_address }}"{% else %}"ip": "0.0.0.0"{% endif %}
+    },
+    "resources": {
+      {% if extractors.target_resources %}
+      {% set first_resource = (extractors.target_resources | parse_json_array)[0] if (extractors.target_resources | parse_json_array) else {} %}
+      "uid": "{{ first_resource.id | default('unknown') }}",
+      "name": "{{ first_resource.displayName | default(first_resource.userPrincipalName) | default('') | json_escape }}",
+      "type": "{{ first_resource.type | default('AzureADResource') }}",
+      "cloud_partition": "azure-commercial"
+      {% else %}
+      "uid": "unknown",
+      "type": "AzureADResource",
+      "cloud_partition": "azure-commercial"
+      {% endif %}
+    },
+    "unmapped": {
+      "activity_category": "{{ extractors.activity_category | default('') }}",
+      "category": "{{ extractors.category | default('') }}",
+      "logged_by_service": "{{ extractors.logged_by_service | default('') }}"
+      {% if extractors.additional_details %},
+      "additional_details": {{ extractors.additional_details | to_json_string }}
+      {% else %}
+      "additional_details": ""
+      {% endif %}
+    }
+  }
+
+# Custom filters for Azure AD audit log transformation
+filters:
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped
+  
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  derive_activity_id: |
+    def derive_activity_id(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 99
+        op_upper = operation_name.upper()
+        if 'ADD' in op_upper or 'CREATE' in op_upper or 'REGISTER' in op_upper:
+            return 1
+        elif 'GET' in op_upper or 'LIST' in op_upper or 'READ' in op_upper:
+            return 2
+        elif 'UPDATE' in op_upper or 'MODIFY' in op_upper or 'CHANGE' in op_upper or 'SET' in op_upper:
+            return 3
+        elif 'DELETE' in op_upper or 'REMOVE' in op_upper or 'UNREGISTER' in op_upper:
+            return 4
+        else:
+            return 99
+  
+  derive_activity_name: |
+    def derive_activity_name(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 'Other'
+        op_upper = operation_name.upper()
+        if 'ADD' in op_upper or 'CREATE' in op_upper or 'REGISTER' in op_upper:
+            return 'Create'
+        elif 'GET' in op_upper or 'LIST' in op_upper or 'READ' in op_upper:
+            return 'Read'
+        elif 'UPDATE' in op_upper or 'MODIFY' in op_upper or 'CHANGE' in op_upper or 'SET' in op_upper:
+            return 'Update'
+        elif 'DELETE' in op_upper or 'REMOVE' in op_upper or 'UNREGISTER' in op_upper:
+            return 'Delete'
+        else:
+            return 'Other'
+  
+  is_valid: |
+    def is_valid(ip_string):
+        if not ip_string or not isinstance(ip_string, str):
+            return False
+        ip_string = ip_string.strip()
+        if not ip_string or ip_string == '':
+            return False
+        return True
+  
+  format_uid: |
+    def format_uid(uid):
+        if not uid:
+            return 'unknown'
+        uid_str = str(uid).replace('-', '')
+        return uid_str
+  
+  parse_json_array: |
+    def parse_json_array(json_data):
+        import json
+        if isinstance(json_data, list):
+            return json_data
+        if isinstance(json_data, str):
+            try:
+                parsed = json.loads(json_data)
+                if isinstance(parsed, list):
+                    return parsed
+            except Exception:
+                pass
+        return []
+  
+  to_json_string: |
+    def to_json_string(data):
+        import json
+        if not data:
+            return '""'
+        try:
+            return json.dumps(data)
+        except Exception:
+            return '""'

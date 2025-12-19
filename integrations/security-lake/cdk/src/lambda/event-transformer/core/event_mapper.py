@@ -226,7 +226,10 @@ class CloudEventMapper:
         # Iterate through sorted mappings to find a match
         for mapping_name, mapping_config in sorted_mappings:
             # Check if this mapping has detection_keys
-            if 'detection_keys' in mapping_config and mapping_config['detection_keys']:
+            has_detection_keys = 'detection_keys' in mapping_config and mapping_config['detection_keys']
+            all_keys_present = False
+            
+            if has_detection_keys:
                 detection_keys = mapping_config['detection_keys']
                 # Check if ALL detection keys are present (supports nested paths with dots)
                 all_keys_present = True
@@ -242,37 +245,43 @@ class CloudEventMapper:
                         if key not in event_data:
                             all_keys_present = False
                             break
-                
-                if all_keys_present:
-                    self.logger.debug(f"DIAGNOSTIC: Classified as {mapping_name} (detection keys match: {detection_keys})")
-                    return mapping_name
             
             # Check event type matching
             event_type_key = mapping_config.get('event_type_key')
             expected_value = mapping_config.get('event_type_value')
             match_mode = mapping_config.get('event_type_match_mode', 'contains')
             
-            # Skip if no event type matching configured
-            if not event_type_key or not expected_value:
-                continue
-            
             # Get the actual value from event_data (support nested fields with dot notation)
-            actual_value = self._get_nested_value(event_data, event_type_key)
+            actual_value = self._get_nested_value(event_data, event_type_key) if event_type_key else ''
             
-            self.logger.debug(f"DIAGNOSTIC: Checking {mapping_name}: key={event_type_key}, expected={expected_value}, actual={actual_value}, mode={match_mode}")
+            # Check if event_type_value matches
+            event_type_matches = False
+            if event_type_key and expected_value:
+                self.logger.debug(f"DIAGNOSTIC: Checking {mapping_name}: key={event_type_key}, expected={expected_value}, actual={actual_value}, mode={match_mode}")
+                
+                # Apply match mode (use case-insensitive matching for contains/startswith since Azure resourceIds are uppercase)
+                if match_mode == 'contains':
+                    event_type_matches = expected_value.lower() in str(actual_value).lower()
+                elif match_mode == 'exact' or match_mode == 'nested_exact':
+                    event_type_matches = expected_value == str(actual_value)
+                elif match_mode == 'startswith':
+                    event_type_matches = str(actual_value).lower().startswith(expected_value.lower())
             
-            # Apply match mode
-            if match_mode == 'contains':
-                if expected_value in str(actual_value):
-                    self.logger.debug(f"DIAGNOSTIC: Classified as {mapping_name} (type contains match)")
+            # Determine if this mapping matches based on what criteria are configured
+            # Case 1: Both detection_keys AND event_type matching configured - require BOTH to match
+            if has_detection_keys and event_type_key and expected_value:
+                if all_keys_present and event_type_matches:
+                    self.logger.debug(f"DIAGNOSTIC: Classified as {mapping_name} (detection keys + event_type match)")
                     return mapping_name
-            elif match_mode == 'exact' or match_mode == 'nested_exact':
-                if expected_value == str(actual_value):
-                    self.logger.debug(f"DIAGNOSTIC: Classified as {mapping_name} ({match_mode} match)")
+            # Case 2: Only detection_keys configured (no event_type matching) - require detection_keys to match
+            elif has_detection_keys and (not event_type_key or not expected_value):
+                if all_keys_present:
+                    self.logger.debug(f"DIAGNOSTIC: Classified as {mapping_name} (detection keys only match: {mapping_config['detection_keys']})")
                     return mapping_name
-            elif match_mode == 'startswith':
-                if str(actual_value).startswith(expected_value):
-                    self.logger.debug(f"DIAGNOSTIC: Classified as {mapping_name} (startswith match)")
+            # Case 3: Only event_type matching configured (no detection_keys) - require event_type to match
+            elif not has_detection_keys and event_type_key and expected_value:
+                if event_type_matches:
+                    self.logger.debug(f"DIAGNOSTIC: Classified as {mapping_name} (event_type only match)")
                     return mapping_name
         
         # Default to generic mapping
@@ -281,11 +290,11 @@ class CloudEventMapper:
     
     def _get_nested_value(self, data: Dict[str, Any], key_path: str) -> Any:
         """
-        Get a value from nested dictionary using dot notation
+        Get a value from nested dictionary using dot notation with array index support
         
         Args:
             data: Dictionary to extract value from
-            key_path: Dot-separated path (e.g., 'finding.findingClass')
+            key_path: Dot-separated path with optional array indices (e.g., 'finding.findingClass' or 'records[0].Type')
             
         Returns:
             The value at the path, or empty string if not found
@@ -293,20 +302,47 @@ class CloudEventMapper:
         if not key_path:
             return ''
         
-        # Simple case - no nesting
-        if '.' not in key_path:
-            return data.get(key_path, '')
+        # Parse the key path to handle array indices
+        import re
         
-        # Navigate nested structure
+        # Split by dots but preserve array indices
+        # e.g., "records[0].Type" -> ["records[0]", "Type"]
         keys = key_path.split('.')
         current = data
         
         for key in keys:
-            if not isinstance(current, dict):
-                return ''
-            current = current.get(key)
-            if current is None:
-                return ''
+            # Check if this key has an array index (e.g., "records[0]")
+            array_match = re.match(r'^(.+)\[(\d+)\]$', key)
+            
+            if array_match:
+                # Extract the base key and index
+                base_key = array_match.group(1)
+                index = int(array_match.group(2))
+                
+                # Navigate to the array
+                if isinstance(current, dict):
+                    current = current.get(base_key)
+                    if current is None:
+                        return ''
+                else:
+                    return ''
+                
+                # Access the array element
+                if isinstance(current, list):
+                    if index < len(current):
+                        current = current[index]
+                    else:
+                        return ''
+                else:
+                    return ''
+            else:
+                # Simple key access
+                if isinstance(current, dict):
+                    current = current.get(key)
+                    if current is None:
+                        return ''
+                else:
+                    return ''
         
         return current
     

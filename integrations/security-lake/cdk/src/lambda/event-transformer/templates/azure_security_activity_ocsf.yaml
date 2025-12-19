@@ -1,0 +1,220 @@
+name: "azure_security_activity_to_ocsf_api_activity"
+input_schema: "azure_security_activity_logs"
+output_schema: "ocsf_api_activity_v110"
+
+# JSONPath extractors for Azure Security Activity Logs
+extractors:
+  # Core timestamps
+  time: "$.event_data.time"
+  
+  # Security operation details
+  operation_name: "$.event_data.operationName"
+  category: "$.event_data.category"
+  resource_id: "$.event_data.resourceId"
+  
+  # Result information
+  result_type: "$.event_data.resultType"
+  level: "$.event_data.level"
+  
+  # Correlation
+  correlation_id: "$.event_data.correlationId"
+  
+  # Location and environment
+  environment: "$.event_data.Environment"
+  region: "$.event_data.Region"
+  location: "$.event_data.location"
+  
+  # Properties
+  event_name: "$.event_data.properties.eventName"
+  operation_id: "$.event_data.properties.operationId"
+  properties: "$.event_data.properties"
+  
+  # Tenant
+  tenant_id: "$.event_data.tenantId"
+
+# OCSF v1.1.0 API Activity template (class_uid: 6003)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 6003,
+    "class_name": "API Activity",
+    "category_uid": 6,
+    "category_name": "Application Activity",
+    "activity_id": {{ extractors.operation_name | derive_security_activity_id }},
+    "activity_name": "{{ extractors.operation_name | derive_security_activity_name }}",
+    "type_uid": {{ 600300 + (extractors.operation_name | derive_security_activity_id) }},
+    "type_name": "API Activity: {{ extractors.operation_name | derive_security_activity_name }}",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": {% if extractors.level == "Error" or extractors.level == "Critical" %}4{% elif extractors.level == "Warning" %}3{% elif extractors.level == "Informational" %}1{% else %}1{% endif %},
+    "severity": "{% if extractors.level == "Error" or extractors.level == "Critical" %}High{% elif extractors.level == "Warning" %}Medium{% elif extractors.level == "Informational" %}Informational{% else %}Informational{% endif %}",
+    "status": "{% if extractors.result_type == 'Accepted' or extractors.result_type == 'Success' %}Success{% elif extractors.result_type == 'Failure' or extractors.result_type == 'Failed' %}Failure{% else %}Unknown{% endif %}",
+    "status_id": {% if extractors.result_type == 'Accepted' or extractors.result_type == 'Success' %}1{% elif extractors.result_type == 'Failure' or extractors.result_type == 'Failed' %}2{% else %}0{% endif %},
+    "status_detail": "{{ extractors.result_type | default('') }}",
+    "message": "Azure Security Activity: {{ extractors.operation_name | default('Unknown Operation') }} - {{ extractors.event_name | default(extractors.result_type) | default('Security operation') }}",
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Microsoft Defender for Cloud",
+        "vendor_name": "Microsoft",
+        "feature": {
+          "name": "Security Center Operations"
+        }
+      },
+      "profiles": ["cloud", "datetime"],
+      "uid": "{{ extractors.correlation_id }}",
+      "correlation_uid": "{{ extractors.correlation_id }}",
+      "original_time": "{{ extractors.time }}"
+    },
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.resource_id | extract_subscription }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      },
+      "region": "{{ extractors.region | default(extractors.location) | default('unknown') }}"
+    },
+    "api": {
+      "operation": "{{ extractors.operation_name | default('Unknown') }}",
+      "service": {
+        "name": "{{ extractors.operation_name | extract_service_name }}"
+      },
+      "request": {
+        "uid": "{{ extractors.correlation_id }}"
+      },
+      "response": {
+        "code": {% if extractors.result_type == 'Accepted' or extractors.result_type == 'Success' %}202{% elif extractors.result_type == 'Failure' or extractors.result_type == 'Failed' %}500{% else %}0{% endif %}
+      }
+    },
+    "actor": {
+      "user": {
+        "uid": "{{ extractors.tenant_id | format_uid }}",
+        "name": "Microsoft Defender for Cloud",
+        "type": "System",
+        "type_id": 0
+      },
+      "idp": {
+        "uid": "{{ extractors.tenant_id }}"
+      }
+    },
+    "resources": {
+      "uid": "{{ extractors.resource_id | default('') }}",
+      "type": "{{ extractors.operation_name | extract_resource_type }}",
+      "cloud_partition": "azure-commercial"
+    },
+    "unmapped": {
+      "event_name": "{{ extractors.event_name | default('') | json_escape }}",
+      "operation_id": "{{ extractors.operation_id | default('') }}",
+      "environment": "{{ extractors.environment | default('') }}",
+      "properties": {{ extractors.properties | to_json | default('{}') }}
+    }
+  }
+
+# Custom filters for security activity transformation
+filters:
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped
+  
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  extract_subscription: |
+    def extract_subscription(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'unknown'
+        parts = resource_id.upper().split('/')
+        for i, part in enumerate(parts):
+            if part == 'SUBSCRIPTIONS' and i + 1 < len(parts):
+                return parts[i + 1]
+        return 'unknown'
+  
+  extract_service_name: |
+    def extract_service_name(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 'Unknown Service'
+        parts = operation_name.split('/')
+        if parts:
+            service_part = parts[0]
+            if '.' in service_part:
+                service_name = service_part.split('.')[-1]
+                return service_name.title()
+            return service_part
+        return 'Unknown Service'
+  
+  extract_resource_type: |
+    def extract_resource_type(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 'Azure Security Resource'
+        parts = operation_name.split('/')
+        if len(parts) >= 2:
+            return '/'.join(parts[:2])
+        return 'Azure Security Resource'
+  
+  derive_security_activity_id: |
+    def derive_security_activity_id(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 99
+        op_upper = operation_name.upper()
+        if '/WRITE' in op_upper or '/CREATE' in op_upper:
+            return 1
+        elif '/READ' in op_upper or '/GET' in op_upper:
+            return 2
+        elif '/UPDATE' in op_upper or '/MODIFY' in op_upper:
+            return 3
+        elif '/DELETE' in op_upper or '/REMOVE' in op_upper:
+            return 4
+        else:
+            return 99
+  
+  derive_security_activity_name: |
+    def derive_security_activity_name(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 'Other'
+        op_upper = operation_name.upper()
+        if '/WRITE' in op_upper or '/CREATE' in op_upper:
+            return 'Create'
+        elif '/READ' in op_upper or '/GET' in op_upper:
+            return 'Read'
+        elif '/UPDATE' in op_upper or '/MODIFY' in op_upper:
+            return 'Update'
+        elif '/DELETE' in op_upper or '/REMOVE' in op_upper:
+            return 'Delete'
+        else:
+            return 'Other'
+  
+  format_uid: |
+    def format_uid(uid):
+        if not uid:
+            return 'unknown'
+        uid_str = str(uid).replace('-', '')
+        return uid_str
+  
+  to_json: |
+    def to_json(obj):
+        if not obj:
+            return '{}'
+        import json
+        try:
+            if isinstance(obj, str):
+                return obj
+            return json.dumps(obj)
+        except Exception:
+            return '{}'

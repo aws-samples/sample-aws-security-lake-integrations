@@ -1,0 +1,63 @@
+https://application-security-lake-app-gfw68hz673cbsd9qlnnf.ca-central-1.opensearch.amazonaws.com/api/workspaces
+
+The creation of the application is going to return an `Id` via getAtt, the id can be used to create an endpoint url to use for the api:
+https://application-security-lake-app-<application-id>.<aws-region>.opensearch.amazonaws.com/
+
+this will end up as : `https://application-security-lake-app-gfw68hz673cbsd9qlnnf.ca-central-1.opensearch.amazonaws.com`
+
+{"attributes":{"name":"TestWorkSpace","description":"TestESts","color":"#54B399","features":["use-case-observability"]},"settings":{"dataSources":["19ea4b89-1719-3af6-8aca-6a671bdf1021"],"dataConnections":[],"permissions":{"library_write":{"users":["%me%"]},"write":{"users":["%me%"]}}}}
+
+curl 'https: //application-security-lake-app-gfw68hz673cbsd9qlnnf.ca-central-1.opensearch.amazonaws.com/api/workspaces' \
+  -X POST \
+  -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv: 143.0) Gecko/20100101 Firefox/143.0' \
+  -H 'Accept: */*' \
+  -H 'Accept-Language: en-US,en;q=0.5' \
+  -H 'Accept-Encoding: gzip, deflate, br, zstd' \
+  -H 'Referer: https://application-security-lake-app-gfw68hz673cbsd9qlnnf.ca-central-1.opensearch.amazonaws.com/app/workspace_create' \
+  -H 'Content-Type: application/json' \
+  -H 'osd-version: 3.4.0' \
+  -H 'osd-xsrf: osd-fetch' \
+  -H 'Origin: https://application-security-lake-app-gfw68hz673cbsd9qlnnf.ca-central-1.opensearch.amazonaws.com' \
+  -H 'Sec-GPC: 1' \
+  -H 'Connection: keep-alive' \
+  -H 'Cookie: session-id=f840a96e-b1ee-4db6-bf2a-631c490fa788; sidt=1766087458' \
+  -H 'Sec-Fetch-Dest: empty' \
+  -H 'Sec-Fetch-Mode: cors' \
+  -H 'Sec-Fetch-Site: same-origin' \
+  -H 'Priority: u=0' \
+  -H 'Pragma: no-cache' \
+  -H 'Cache-Control: no-cache' \
+  --data-raw '{"attributes":{"name":"TestWorkSpace","description":"TestESts","color":"#54B399","features":["use-case-observability"]},"settings":{"dataSources":["19ea4b89-1719-3af6-8aca-6a671bdf1021"],"dataConnections":[],"permissions":{"library_write":{"users":["%me%"]},"write":{"users":["%me%"]}}}}'
+
+
+  {"attributes":{"name":"TestWorkSpace","description":"TestESts","color":"#54B399","features":["use-case-observability"]},"settings":{"dataSources":["19ea4b89-1719-3af6-8aca-6a671bdf1021"],"dataConnections":[],"permissions":{"library_write":{"users":["%me%"]},"write":{"users":["%me%"]}}}}
+
+
+  {
+    "attributes": {
+        "name": "TestWorkSpace",
+        "description": "TestESts",
+        "color": "#54B399",
+        "features": [
+            "use-case-observability"
+        ]
+    },
+    "settings": {
+        "dataSources": [
+            "19ea4b89-1719-3af6-8aca-6a671bdf1021"
+        ],
+        "dataConnections": [],
+        "permissions": {
+            "library_write": {
+                "users": [
+                    "%me%"
+                ]
+            },
+            "write": {
+                "users": [
+                    "%me%"
+                ]
+            }
+        }
+    }
+}

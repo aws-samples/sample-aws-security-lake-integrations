@@ -4,14 +4,14 @@ A complete cross-cloud security integration solution that connects Google Securi
 
 ## Architecture Overview
 
-This solution creates a reliable, scalable integration between Google Cloud Platform and AWS, enabling organizations to centralize Google SCC security findings in AWS Security Lake using OCSF v1.7.0 format, alongside AWS CloudTrail for unified analysis.
+This solution creates a reliable, scalable integration between Google Cloud Platform and AWS, enabling organizations to centralize Google SCC security findings in AWS Security Lake using OCSF v1.1.0 format, alongside AWS CloudTrail for unified analysis.
 
 ### Key Components
 
 - **GCP Infrastructure**: Pub/Sub Topic and Subscription for receiving Google SCC findings
 - **AWS Infrastructure**: Lambda functions, SQS queues, DynamoDB cursor store, and Security Lake integration
 - **Cross-Cloud Integration**: Secure credential management and reliable event processing
-- **OCSF Compliance**: Full OCSF v1.7.0 schema compliance with rich vulnerability and compliance data
+- **OCSF Compliance**: Full OCSF v1.1.0 schema compliance with rich vulnerability and compliance data
 - **Monitoring**: Comprehensive CloudWatch alarms and logging for operational visibility
 
 ## Solution Architecture
@@ -32,7 +32,7 @@ SQS Queue → AWS Lambda (Event Transformer) → Security Lake (OCSF Parquet)
 3. **Native Message Tracking**: Pub/Sub subscription maintains message position automatically
 4. **Message Acknowledgment**: Successfully processed messages acknowledged to Pub/Sub
 5. **Message Queuing**: Events forwarded to SQS for decoupled processing
-6. **Event Transformation**: GCP events converted to OCSF v1.7.0 format
+6. **Event Transformation**: GCP events converted to OCSF v1.1.0 format
 7. **Security Lake Storage**: Events delivered to AWS Security Lake as OCSF Parquet files
 8. **Unified Analysis**: Events queryable via Athena alongside other security data
 
@@ -138,7 +138,7 @@ cd ../scripts
 - **Batch Processing**: Efficient Pub/Sub and SQS batch processing
 - **Parallel Processing**: Configurable Lambda concurrency for throughput
 
-### OCSF v1.7.0 Compliance
+### OCSF v1.1.0 Compliance
 - **Vulnerability Finding (2002)**: Full CVE and CVSS v3 details
 - **Compliance Finding (2003)**: Rich compliance framework mappings (CIS, ISO, PCI, NIST, HIPAA, SOC2)
 - **Detection Finding (2004)**: Threat and observation events
@@ -270,10 +270,10 @@ aws cloudtrail start-query \
 - **[Google SCC Documentation](https://cloud.google.com/security-command-center/docs)**: Security Command Center configuration
 
 ## Version Information
-- **Architecture**: Polling-based Pub/Sub integration with OCSF v1.7.0
+- **Architecture**: Polling-based Pub/Sub integration with OCSF v1.1.0
 - **Python Runtime**: 3.11
 - **CDK Version**: 2.95.1
 - **Terraform Version**: >= 1.0
-- **OCSF Version**: 1.7.0
+- **OCSF Version**: 1.1.0
 
 This solution provides enterprise-grade cross-cloud security integration with comprehensive monitoring, reliable processing, and unified event storage for enhanced security visibility across GCP and AWS environments.

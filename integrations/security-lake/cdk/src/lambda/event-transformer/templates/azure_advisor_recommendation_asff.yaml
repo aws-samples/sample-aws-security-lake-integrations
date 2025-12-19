@@ -1,0 +1,243 @@
+name: "azure_advisor_recommendation_to_asff"
+input_schema: "azure_advisor_recommendation"
+output_schema: "asff_compliance_finding"
+
+# JSONPath extractors for Azure Advisor Recommendation events
+extractors:
+  # Core fields
+  time: "$.event_data.time"
+  
+  # Recommendation details
+  recommendation_name: "$.event_data.properties.recommendationName"
+  recommendation_category: "$.event_data.properties.recommendationCategory"
+  recommendation_impact: "$.event_data.properties.recommendationImpact"
+  recommendation_type: "$.event_data.properties.recommendationType"
+  recommendation_resource_link: "$.event_data.properties.recommendationResourceLink"
+  
+  # Result and status
+  result_type: "$.event_data.resultType"
+  level: "$.event_data.level"
+  
+  # Resource information
+  resource_id: "$.event_data.resourceId"
+  subscription_id: "$.event_data.subscriptionId"
+  
+  # Identity
+  correlation_id: "$.event_data.correlationId"
+
+# ASFF template for Azure Advisor Recommendations
+template: |
+  {
+    "SchemaVersion": "2018-10-08",
+    "Id": "{{ extractors.recommendation_type | default(extractors.correlation_id) | default(generate_uuid()) }}",
+    "ProductArn": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default",
+    "ProductName": "{{ config.asff_product_name | default('Microsoft Azure Advisor') }}",
+    "CompanyName": "Microsoft",
+    "GeneratorId": "azure-advisor-recommendation",
+    "AwsAccountId": "{{ aws_account_id }}",
+    "Types": ["Software and Configuration Checks/Industry and Regulatory Standards/Azure Best Practices"],
+    "FirstObservedAt": "{{ extractors.time | normalize_timestamp }}",
+    "CreatedAt": "{{ extractors.time | normalize_timestamp }}",
+    "UpdatedAt": "{{ extractors.time | normalize_timestamp }}",
+    "Severity": {
+      "Label": "{{ extractors.recommendation_impact | advisor_severity_label }}",
+      "Normalized": {{ extractors.recommendation_impact | advisor_severity_normalized }}
+    },
+    "FindingProviderFields": {
+      "Types": ["Software and Configuration Checks/Industry and Regulatory Standards/Azure Best Practices"],
+      "Severity": {
+        "Label": "{{ extractors.recommendation_impact | advisor_severity_label }}",
+        "Original": "{{ extractors.recommendation_impact | upper }}"
+      }
+    },
+    "Title": "{{ extractors.recommendation_name | default('Azure Advisor Recommendation') | json_escape | truncate(200) }}",
+    "Description": "Azure Advisor {{ extractors.recommendation_category | default('Security') }} recommendation: {{ extractors.recommendation_name | default('Configuration best practice') | json_escape | truncate(1024) }}",
+    "ProductFields": {
+      "azure/recommendationType": "{{ extractors.recommendation_type | default('') }}",
+      "azure/recommendationCategory": "{{ extractors.recommendation_category | default('Security') }}",
+      "azure/recommendationImpact": "{{ extractors.recommendation_impact | default('') }}",
+      "azure/status": "{{ extractors.result_type | default('Active') }}",
+      "azure/level": "{{ extractors.level | default('Informational') }}",
+      {%- if extractors.subscription_id | is_valid %}
+      "azure/subscriptionId": "{{ extractors.subscription_id }}",
+      {%- endif %}
+      "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Microsoft Azure Advisor') }}",
+      "aws/securityhub/CompanyName": "Microsoft",
+      "aws/securityhub/FindingId": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default/{{ extractors.recommendation_type | default(extractors.correlation_id) | default(generate_uuid()) }}"
+    },
+    "Compliance": {
+      "Status": "{{ extractors.result_type | advisor_compliance_status }}",
+      "RelatedRequirements": [
+        "Azure Advisor Best Practices",
+        "{{ extractors.recommendation_category | default('Security') }} - {{ extractors.recommendation_impact | default('Medium') }} Impact"
+      ],
+      "StatusReasons": [{
+        "ReasonCode": "{{ extractors.result_type | advisor_compliance_reason_code }}",
+        "Description": "{{ extractors.recommendation_name | default('Azure Advisor recommendation') | json_escape | truncate(256) }}"
+      }]
+    },
+    "Remediation": {
+      "Recommendation": {
+        "Text": "Review and implement the Azure Advisor recommendation: {{ extractors.recommendation_name | default('Configuration improvement') | json_escape | truncate(512) }}",
+        "Url": "{{ extractors.recommendation_resource_link | default('https://portal.azure.com/#blade/Microsoft_Azure_Expert/AdvisorMenuBlade/overview') }}"
+      }
+    },
+    "Resources": [{
+      "Type": "{% if extractors.resource_id | is_valid %}{{ extractors.resource_id | extract_resource_type }}{% else %}Other{% endif %}",
+      "Id": "{{ extractors.resource_id | default_if_invalid('arn:aws:iam::' + aws_account_id + ':root') }}",
+      "Partition": "aws",
+      "Region": "{{ aws_region }}",
+      "Details": {
+        "Other": {
+          "AzureResourceId": "{{ extractors.resource_id | default('') }}",
+          "SubscriptionId": "{{ extractors.subscription_id | default(extractors.resource_id | extract_subscription_id) | default('') }}"
+        }
+      }
+    }],
+    "Workflow": {"Status": "{% if extractors.result_type == 'Active' %}NEW{% else %}RESOLVED{% endif %}"},
+    "Region": "{{ aws_region }}",
+    "WorkflowState": "{% if extractors.result_type == 'Active' %}NEW{% else %}RESOLVED{% endif %}",
+    "RecordState": "{{ extractors.result_type | advisor_record_state }}"
+  }
+
+# Custom filters for Azure Advisor ASFF transformation
+filters:
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        try:
+            escaped = json.dumps(text)[1:-1]
+            return escaped
+        except Exception:
+            return str(text).replace('"', '\\"').replace('\n', ' ')
+  
+  normalize_timestamp: |
+    def normalize_timestamp(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return dt.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        except Exception:
+            return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+  
+  advisor_severity_label: |
+    def advisor_severity_label(impact):
+        if not impact or not isinstance(impact, str):
+            return 'INFORMATIONAL'
+        impact_upper = impact.upper()
+        if impact_upper == 'HIGH':
+            return 'HIGH'
+        elif impact_upper == 'MEDIUM':
+            return 'MEDIUM'
+        elif impact_upper == 'LOW':
+            return 'LOW'
+        else:
+            return 'INFORMATIONAL'
+  
+  advisor_severity_normalized: |
+    def advisor_severity_normalized(impact):
+        if not impact or not isinstance(impact, str):
+            return 0
+        impact_upper = impact.upper()
+        if impact_upper == 'HIGH':
+            return 70
+        elif impact_upper == 'MEDIUM':
+            return 40
+        elif impact_upper == 'LOW':
+            return 10
+        else:
+            return 0
+  
+  advisor_compliance_status: |
+    def advisor_compliance_status(result_type):
+        if not result_type or not isinstance(result_type, str):
+            return 'FAILED'
+        result_upper = result_type.upper()
+        if result_upper == 'ACTIVE':
+            return 'FAILED'
+        elif result_upper == 'RESOLVED':
+            return 'PASSED'
+        else:
+            return 'NOT_AVAILABLE'
+  
+  advisor_compliance_reason_code: |
+    def advisor_compliance_reason_code(result_type):
+        # Valid ASFF ReasonCode values: CONSTRAINT_NOT_SATISFIED, NOT_APPLICABLE, NOT_VERIFIED, INTERNAL_SERVICE_ERROR, RESOURCE_NOT_FOUND, RESOURCE_DELETED
+        if not result_type or not isinstance(result_type, str):
+            return 'CONSTRAINT_NOT_SATISFIED'
+        result_upper = result_type.upper()
+        if result_upper == 'ACTIVE':
+            return 'CONSTRAINT_NOT_SATISFIED'
+        elif result_upper == 'RESOLVED':
+            return 'NOT_APPLICABLE'
+        else:
+            return 'NOT_APPLICABLE'
+  
+  advisor_record_state: |
+    def advisor_record_state(result_type):
+        if not result_type or not isinstance(result_type, str):
+            return 'ACTIVE'
+        result_upper = result_type.upper()
+        if result_upper == 'ACTIVE':
+            return 'ACTIVE'
+        elif result_upper == 'RESOLVED':
+            return 'ARCHIVED'
+        else:
+            return 'ACTIVE'
+  
+  truncate: |
+    def truncate(text, max_length=1024):
+        if not text or not isinstance(text, str):
+            return ''
+        if len(text) <= max_length:
+            return text
+        return text[:max_length-3] + '...'
+  
+  is_valid: |
+    def is_valid(value):
+        if not value or value == '':
+            return False
+        return True
+  
+  default_if_invalid: |
+    def default_if_invalid(value, default=''):
+        if not value or value == '':
+            return default
+        return value
+  
+  extract_subscription_id: |
+    def extract_subscription_id(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return ''
+        parts = resource_id.split('/')
+        for i, part in enumerate(parts):
+            if part.lower() == 'subscriptions' and i + 1 < len(parts):
+                return parts[i + 1]
+        return ''
+  
+  extract_resource_type: |
+    def extract_resource_type(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'Other'
+        parts = resource_id.split('/')
+        for i, part in enumerate(parts):
+            if part.lower() == 'providers' and i + 1 < len(parts):
+                provider = parts[i + 1]
+                if i + 2 < len(parts):
+                    return provider + '/' + parts[i + 2]
+                return provider
+        return 'Other'
+  
+  generate_uuid: |
+    def generate_uuid():
+        import uuid
+        return str(uuid.uuid4())

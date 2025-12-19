@@ -1,0 +1,345 @@
+Security Implementation Package - File Listing
+Generated: 2025-12-19T19:02:31+00:00
+Version: 2025.12.19-523360
+Package: security-implementation-public-2025.12.19-523360
+
+DIRECTORY STRUCTURE:
+==================
+.
+- integrations
+- - aws
+- - - opensearch-serverless
+- - - - assets
+- - - - bin
+- - - - lib
+- - - - - constructs
+- - - - - core
+- - - - src
+- - - - - lambda
+- - - - - - saved-objects-importer
+- - - - - - - helpers
+- - - - - - workspace-creator
+- - - - - - - helpers
+- - - - test
+- - azure
+- - - microsoft_defender_cloud
+- - - - diagrams
+- - - - scripts
+- - - - terraform
+- - - - - modules
+- - - - - - app-registration
+- - - - - - defender-continuous-export
+- - - - - - entra-id-diagnostics
+- - - - - - eventgrid-subscription
+- - - - - - eventhub
+- - - - - - eventhub-namespace
+- - - - - - vnet-flow-logs
+- - google_security_command_center
+- - - scripts
+- - - terraform
+- - security-lake
+- - - cdk
+- - - - bin
+- - - - docs
+- - - - lib
+- - - - - core
+- - - - modules
+- - - - - azure
+- - - - - - src
+- - - - - - - lambda
+- - - - - - - - event-hub-processor
+- - - - - - - - - helpers
+- - - - - example-skeleton
+- - - - - - src
+- - - - - - - lambda
+- - - - - - - - event-processor
+- - - - - google-scc
+- - - - - - src
+- - - - - - - lambda
+- - - - - - - - pubsub-poller
+- - - - - - - - - helpers
+- - - - src
+- - - - - lambda
+- - - - - - event-transformer
+- - - - - - - core
+- - - - - - - helpers
+- - - - - - - mapping
+- - - - - - - scripts
+- - - - - - - templates
+- - - - - - - validation
+- - - - - - flow-log-processor
+- - - - - - - helpers
+- - - - - - security-lake-custom-resource
+- - - - - - securityhub-processor
+- - - - - shared
+- - - - - - secrets-manager-client
+- - - - - - security-lake-client
+- - - - - - sqs-client
+- - - - test
+- - - - - integration
+- - - diagrams
+- - - docs
+
+FILE LISTING:
+=============
+  .gitignore
+  .pre-commit-config.yaml
+  BLOG_POST.md
+  CODE_OF_CONDUCT.md
+  CONTENTS.txt
+  CONTRIBUTING.md
+  LICENSE
+  PACKAGE-INFO.md
+  README.md
+  integrations/aws/opensearch-serverless/.gitignore
+  integrations/aws/opensearch-serverless/README.md
+  integrations/aws/opensearch-serverless/assets/README.md
+  integrations/aws/opensearch-serverless/assets/aws-workload-logs.ndjson
+  integrations/aws/opensearch-serverless/assets/cloud-api-audit.ndjson
+  integrations/aws/opensearch-serverless/assets/detections-alerts.ndjson
+  integrations/aws/opensearch-serverless/assets/external-workload-logs.ndjson
+  integrations/aws/opensearch-serverless/assets/flowlogs.ndjson
+  integrations/aws/opensearch-serverless/assets/index-patterns.ndjson
+  integrations/aws/opensearch-serverless/assets/log-processing.ndjson
+  integrations/aws/opensearch-serverless/bin/opensearch-serverless.ts
+  integrations/aws/opensearch-serverless/cdk.json
+  integrations/aws/opensearch-serverless/config.yaml.example
+  integrations/aws/opensearch-serverless/lib/constructs/saved-objects-importer.ts
+  integrations/aws/opensearch-serverless/lib/constructs/workspace-creator.ts
+  integrations/aws/opensearch-serverless/lib/core/config-loader.ts
+  integrations/aws/opensearch-serverless/lib/opensearch-serverless-stack.ts
+  integrations/aws/opensearch-serverless/package.json
+  integrations/aws/opensearch-serverless/quickstart.md
+  integrations/aws/opensearch-serverless/src/lambda/saved-objects-importer/__init__.py
+  integrations/aws/opensearch-serverless/src/lambda/saved-objects-importer/app.py
+  integrations/aws/opensearch-serverless/src/lambda/saved-objects-importer/helpers/__init__.py
+  integrations/aws/opensearch-serverless/src/lambda/saved-objects-importer/helpers/opensearch_client.py
+  integrations/aws/opensearch-serverless/src/lambda/saved-objects-importer/helpers/s3_client.py
+  integrations/aws/opensearch-serverless/src/lambda/saved-objects-importer/local_test.py
+  integrations/aws/opensearch-serverless/src/lambda/saved-objects-importer/requirements-dev.txt
+  integrations/aws/opensearch-serverless/src/lambda/saved-objects-importer/requirements.txt
+  integrations/aws/opensearch-serverless/src/lambda/saved-objects-importer/test_lambda.py
+  integrations/aws/opensearch-serverless/src/lambda/workspace-creator/Dockerfile
+  integrations/aws/opensearch-serverless/src/lambda/workspace-creator/__init__.py
+  integrations/aws/opensearch-serverless/src/lambda/workspace-creator/app.py
+  integrations/aws/opensearch-serverless/src/lambda/workspace-creator/helpers/__init__.py
+  integrations/aws/opensearch-serverless/src/lambda/workspace-creator/helpers/opensearch_client.py
+  integrations/aws/opensearch-serverless/src/lambda/workspace-creator/local_test.py
+  integrations/aws/opensearch-serverless/src/lambda/workspace-creator/requirements-dev.txt
+  integrations/aws/opensearch-serverless/src/lambda/workspace-creator/requirements.txt
+  integrations/aws/opensearch-serverless/src/lambda/workspace-creator/test_lambda.py
+  integrations/aws/opensearch-serverless/test/saved-objects-importer.test.ts
+  integrations/aws/opensearch-serverless/tsconfig.json
+  integrations/aws/opensearch-serverless/workspace-creation.txt
+  integrations/azure/microsoft_defender_cloud/README.md
+  integrations/azure/microsoft_defender_cloud/architecture_diagrams.py
+  integrations/azure/microsoft_defender_cloud/diagrams/01_overall_architecture.png
+  integrations/azure/microsoft_defender_cloud/diagrams/02_data_flow.png
+  integrations/azure/microsoft_defender_cloud/diagrams/03_aws_components.png
+  integrations/azure/microsoft_defender_cloud/diagrams/04_azure_components.png
+  integrations/azure/microsoft_defender_cloud/diagrams/05_integration_flow.png
+  integrations/azure/microsoft_defender_cloud/diagrams/README.md
+  integrations/azure/microsoft_defender_cloud/scripts/README.md
+  integrations/azure/microsoft_defender_cloud/scripts/configure-secrets-manager.sh
+  integrations/azure/microsoft_defender_cloud/terraform/README.md
+  integrations/azure/microsoft_defender_cloud/terraform/deploy.sh
+  integrations/azure/microsoft_defender_cloud/terraform/main.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/app-registration/main.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/app-registration/outputs.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/app-registration/variables.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/defender-continuous-export/main.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/defender-continuous-export/outputs.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/defender-continuous-export/variables.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/entra-id-diagnostics/README.md
+  integrations/azure/microsoft_defender_cloud/terraform/modules/entra-id-diagnostics/main.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/entra-id-diagnostics/outputs.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/entra-id-diagnostics/variables.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventgrid-subscription/README.md
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventgrid-subscription/main.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventgrid-subscription/outputs.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventgrid-subscription/variables.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventhub-namespace/main.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventhub-namespace/outputs.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventhub-namespace/variables.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventhub/main.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventhub/outputs.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/eventhub/variables.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/vnet-flow-logs/README.md
+  integrations/azure/microsoft_defender_cloud/terraform/modules/vnet-flow-logs/main.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/vnet-flow-logs/outputs.tf
+  integrations/azure/microsoft_defender_cloud/terraform/modules/vnet-flow-logs/variables.tf
+  integrations/azure/microsoft_defender_cloud/terraform/outputs.tf
+  integrations/azure/microsoft_defender_cloud/terraform/terraform.tfvars.example
+  integrations/azure/microsoft_defender_cloud/terraform/validate.sh
+  integrations/azure/microsoft_defender_cloud/terraform/variables.tf
+  integrations/google_security_command_center/README.md
+  integrations/google_security_command_center/scripts/README.md
+  integrations/google_security_command_center/scripts/check_permissions.sh
+  integrations/google_security_command_center/scripts/check_service_role.sh
+  integrations/google_security_command_center/scripts/configure-secrets-manager.sh
+  integrations/google_security_command_center/scripts/diagnose_and_fix.sh
+  integrations/google_security_command_center/scripts/fix_bucket_policy.sh
+  integrations/google_security_command_center/terraform/README.md
+  integrations/google_security_command_center/terraform/main.tf
+  integrations/google_security_command_center/terraform/outputs.tf
+  integrations/google_security_command_center/terraform/terraform.tfvars.example
+  integrations/google_security_command_center/terraform/variables.tf
+  integrations/security-lake/INSTALLATION_GUIDE.md
+  integrations/security-lake/architecture_diagrams.py
+  integrations/security-lake/cdk/README.md
+  integrations/security-lake/cdk/bin/security-lake-integration.ts
+  integrations/security-lake/cdk/cdk.json
+  integrations/security-lake/cdk/config.example.yaml
+  integrations/security-lake/cdk/docs/CONFIG_SCHEMA.md
+  integrations/security-lake/cdk/lib/core/config-loader.ts
+  integrations/security-lake/cdk/lib/core/integration-module-interface.ts
+  integrations/security-lake/cdk/lib/core/logger.ts
+  integrations/security-lake/cdk/lib/core/module-loader.ts
+  integrations/security-lake/cdk/lib/core/module-registry.ts
+  integrations/security-lake/cdk/lib/core/template-validator.ts
+  integrations/security-lake/cdk/lib/security-lake-stack.ts
+  integrations/security-lake/cdk/modules/azure/README.md
+  integrations/security-lake/cdk/modules/azure/azure-integration-module.ts
+  integrations/security-lake/cdk/modules/azure/config.example.yaml
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/LOCAL_TESTING.md
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/README.md
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/__init__.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/app.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/helpers/__init__.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/helpers/dynamodb_checkpoint_store.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/helpers/dynamodb_cursor_client.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/helpers/eventhub_client.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/helpers/eventhub_rest_client.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/helpers/secrets_manager_client.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/helpers/sqs_client.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/local_test.py
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/output.txt
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/requirements-dev.txt
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/requirements.txt
+  integrations/security-lake/cdk/modules/azure/src/lambda/event-hub-processor/test_lambda.py
+  integrations/security-lake/cdk/modules/example-skeleton/README.md
+  integrations/security-lake/cdk/modules/example-skeleton/example-integration-module.ts
+  integrations/security-lake/cdk/modules/example-skeleton/src/lambda/event-processor/app.py
+  integrations/security-lake/cdk/modules/example-skeleton/src/lambda/event-processor/requirements.txt
+  integrations/security-lake/cdk/modules/google-scc/README.md
+  integrations/security-lake/cdk/modules/google-scc/config.example.yaml
+  integrations/security-lake/cdk/modules/google-scc/google-scc-integration-module.ts
+  integrations/security-lake/cdk/modules/google-scc/index.ts
+  integrations/security-lake/cdk/modules/google-scc/src/lambda/pubsub-poller/__init__.py
+  integrations/security-lake/cdk/modules/google-scc/src/lambda/pubsub-poller/app.py
+  integrations/security-lake/cdk/modules/google-scc/src/lambda/pubsub-poller/helpers/__init__.py
+  integrations/security-lake/cdk/modules/google-scc/src/lambda/pubsub-poller/helpers/dynamodb_cursor_client.py
+  integrations/security-lake/cdk/modules/google-scc/src/lambda/pubsub-poller/helpers/pubsub_client.py
+  integrations/security-lake/cdk/modules/google-scc/src/lambda/pubsub-poller/helpers/secrets_manager_client.py
+  integrations/security-lake/cdk/modules/google-scc/src/lambda/pubsub-poller/helpers/sqs_client.py
+  integrations/security-lake/cdk/modules/google-scc/src/lambda/pubsub-poller/local_test.py
+  integrations/security-lake/cdk/modules/google-scc/src/lambda/pubsub-poller/requirements.txt
+  integrations/security-lake/cdk/package-lock.json
+  integrations/security-lake/cdk/package.json
+  integrations/security-lake/cdk/src/lambda/event-transformer/CHANGELOG.md
+  integrations/security-lake/cdk/src/lambda/event-transformer/DEBUGGING_FAILED_EVENTS.md
+  integrations/security-lake/cdk/src/lambda/event-transformer/README.md
+  integrations/security-lake/cdk/src/lambda/event-transformer/__init__.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/app.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/core/__init__.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/core/cloudtrail_types.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/core/event_mapper.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/core/ocsf_validator.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/core/template_transformer.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/dlq_processing_guide.md
+  integrations/security-lake/cdk/src/lambda/event-transformer/helpers/__init__.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/helpers/azure_json_fixer.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/helpers/event_transformer.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/helpers/json_fixer.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/helpers/security_lake_client.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/helpers/sqs_client.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/integration_test.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/local_test.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/mapping/event_type_mappings.json
+  integrations/security-lake/cdk/src/lambda/event-transformer/requirements-dev.txt
+  integrations/security-lake/cdk/src/lambda/event-transformer/requirements.txt
+  integrations/security-lake/cdk/src/lambda/event-transformer/scripts/README.md
+  integrations/security-lake/cdk/src/lambda/event-transformer/scripts/redrive_dlq_messages.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_advisor_recommendation_asff.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_advisor_recommendation_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_api_activity_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_audit_logs_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_event_grid_storage_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_interactive_user_signin_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_managed_identity_signin_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_noninteractive_user_signin_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_policy_activity_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_security_activity_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_service_principal_signin_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_storage_activity_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/azure_syslog_process_activity_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/compliance_assessment_asff.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/compliance_assessment_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/gcp_api_activity_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/gcp_compliance_finding_asff.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/gcp_compliance_finding_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/gcp_security_finding_asff.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/gcp_security_finding_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/gcp_vpc_flow_logs_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/gcp_vulnerability_finding_asff.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/gcp_vulnerability_finding_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/gcp_workload_log_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/generic_asff.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/generic_cloudtrail.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/microsoft_graph_activity_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/regulatory_compliance_assessment_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/secure_score_asff.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/secure_score_cloudtrail.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/secure_score_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/security_alert_asff.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/security_alert_cloudtrail.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/security_alert_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/security_assessment_asff.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/templates/security_assessment_ocsf.yaml
+  integrations/security-lake/cdk/src/lambda/event-transformer/test_service_principal_signin_template.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/validation/README.md
+  integrations/security-lake/cdk/src/lambda/event-transformer/validation/__init__.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/validation/cli.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/validation/errors.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/validation/filter_validator.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/validation/jinja2_validator.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/validation/json_output_validator.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/validation/jsonpath_validator.py
+  integrations/security-lake/cdk/src/lambda/event-transformer/validation/yaml_validator.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/README.md
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/__init__.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/app.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/convert_to_ocsf.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/helpers/__init__.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/helpers/azure_blob_client.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/helpers/flow_log_transformer.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/helpers/secrets_manager_client.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/helpers/security_lake_client.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/local_test.py
+  integrations/security-lake/cdk/src/lambda/flow-log-processor/requirements.txt
+  integrations/security-lake/cdk/src/lambda/security-lake-custom-resource/__init__.py
+  integrations/security-lake/cdk/src/lambda/security-lake-custom-resource/app.py
+  integrations/security-lake/cdk/src/lambda/security-lake-custom-resource/requirements.txt
+  integrations/security-lake/cdk/src/lambda/securityhub-processor/__init__.py
+  integrations/security-lake/cdk/src/lambda/securityhub-processor/app.py
+  integrations/security-lake/cdk/src/lambda/securityhub-processor/integration_test.py
+  integrations/security-lake/cdk/src/lambda/securityhub-processor/requirements.txt
+  integrations/security-lake/cdk/src/shared/secrets-manager-client/__init__.py
+  integrations/security-lake/cdk/src/shared/secrets-manager-client/secrets_manager_client.py
+  integrations/security-lake/cdk/src/shared/security-lake-client/__init__.py
+  integrations/security-lake/cdk/src/shared/security-lake-client/security_lake_client.py
+  integrations/security-lake/cdk/src/shared/sqs-client/__init__.py
+  integrations/security-lake/cdk/src/shared/sqs-client/sqs_client.py
+  integrations/security-lake/cdk/test/integration/test_framework_e2e.py
+  integrations/security-lake/cdk/tsconfig.json
+  integrations/security-lake/diagrams/01_modular_architecture.png
+  integrations/security-lake/diagrams/02_data_flow.png
+  integrations/security-lake/diagrams/03_module_lifecycle.png
+  integrations/security-lake/diagrams/04_security_architecture.png
+  integrations/security-lake/diagrams/05_complete_with_visualization.png
+  integrations/security-lake/docs/CONFIG_SCHEMA.md
+  integrations/security-lake/docs/KEY_ROTATION_GUIDE.md
+  integrations/security-lake/docs/MODULE_DEVELOPMENT_GUIDE.md
+  integrations/security-lake/docs/MODULE_INTERFACE_SPEC.md
+  integrations/security-lake/docs/MODULE_PACKAGING_GUIDE.md
+  integrations/security-lake/docs/THREAT_MODEL.md

@@ -51,6 +51,19 @@ Integration Modules (Conditionally Deployed)
 - Pre-existing Security Lake S3 bucket
 - IAM permissions to create CloudFormation stacks
 
+### AWS SDK for pandas Lambda Layer
+
+The Event Transformer requires the AWS SDK for pandas (awswrangler) Lambda Layer. Obtain the layer ARN for your region:
+
+**Public AWS Layer:**
+```
+arn:aws:lambda:<REGION>:336392948345:layer:AWSSDKPandas-Python313-Arm64:15
+```
+
+Replace `<REGION>` with your deployment region (e.g., us-east-1, ca-central-1).
+
+For the latest version, see: https://github.com/aws/aws-sdk-pandas/releases
+
 **Azure Requirements (if using Azure module):**
 - Active Azure subscription
 - Microsoft Defender for Cloud enabled
@@ -345,6 +358,38 @@ Creates and manages Security Lake custom log sources.
 - Glue table management
 - OCSF event class registration
 
+### Lambda Layers
+
+The Event Transformer Lambda function uses the AWS SDK for pandas layer to handle Parquet file generation:
+
+**Layer Purpose:**
+- Provides awswrangler, pandas, and pyarrow packages
+- Handles OCSF event serialization to Parquet format for Security Lake
+- Required for proper integration with Security Lake's OCSF schema
+
+**Configuration:**
+Configure the layer ARN in your config.yaml:
+```yaml
+coreProcessing:
+  eventTransformer:
+    lambdaLayerArn: arn:aws:lambda:REGION:336392948345:layer:AWSSDKPandas-Python313-Arm64:15
+```
+
+**Why Layer vs Bundling:**
+- Reduces Lambda deployment package size (approximately 100MB savings)
+- Faster cold start times
+- Better integration with AWS services
+- Can be shared across multiple Lambda functions
+
+**Version Compatibility:**
+- Python Runtime: 3.13
+- Architecture: ARM64
+- awswrangler: >=3.0.0
+- pandas: >=2.0.0
+- pyarrow: >=15.0.0
+
+For detailed configuration options, see [CONFIG_SCHEMA.md](docs/CONFIG_SCHEMA.md#lambda-layer-configuration).
+
 ## Integration Modules
 
 ### Azure Module
@@ -392,7 +437,21 @@ integrations:
         memorySize: 512
 ```
 
-See [`docs/CONFIG_SCHEMA.md`](docs/CONFIG_SCHEMA.md) for complete schema.
+### Event Transformer Configuration
+
+Configure the Event Transformer Lambda including its required Lambda layer:
+
+```yaml
+coreProcessing:
+  eventTransformer:
+    lambdaLayerArn: arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python313-Arm64:15  # Required
+    memory: 512
+    timeout: 300
+    dlqConfig:
+      enabled: true
+```
+
+See [`docs/CONFIG_SCHEMA.md`](docs/CONFIG_SCHEMA.md) for all configuration options.
 
 ## Security
 
@@ -480,6 +539,30 @@ coreProcessing:
     environment:
       LOGGING_LEVEL: DEBUG
 ```
+
+### Lambda Layer Issues
+
+**Problem:** Event Transformer fails with "ModuleNotFoundError: No module named 'awswrangler'"
+
+**Cause:** Lambda layer not configured or incorrect ARN
+
+**Solution:**
+1. Verify the layer ARN in config.yaml matches your deployment region
+2. Ensure layer version is compatible with Python 3.13 and ARM64
+3. Check the layer ARN format:
+   ```
+   arn:aws:lambda:<REGION>:336392948345:layer:AWSSDKPandas-Python313-Arm64:15
+   ```
+4. For the latest version, visit: https://github.com/aws/aws-sdk-pandas/releases
+
+**Problem:** Lambda function exceeds deployment package size limit
+
+**Cause:** awswrangler bundled in deployment package instead of using layer
+
+**Solution:**
+1. Ensure `lambdaLayerArn` is configured in config.yaml
+2. Verify awswrangler is commented out in requirements.txt
+3. Redeploy the stack
 
 ## Migration from Legacy Version
 

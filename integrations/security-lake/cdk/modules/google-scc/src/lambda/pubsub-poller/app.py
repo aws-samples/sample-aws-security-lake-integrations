@@ -107,51 +107,52 @@ def on_message_received(context: Dict[str, Any], message_data: Dict[str, Any],
         message_data: The received message data
         sqs_client: SQS client for sending messages
         sqs_queue_url: SQS queue URL
+        
+    Raises:
+        Exception: When message processing or SQS send fails
     """
-    try:
-        message_id = message_data.get('message_metadata', {}).get('message_id', 'unknown')
+    message_id = message_data.get('message_metadata', {}).get('message_id', 'unknown')
+    
+    # Check if this is a VPC Flow Log
+    if is_vpc_flow_log(message_data.get("event_data",{})):
+        logger.info(f"Processing VPC Flow Log message {message_id}")
+        context['stats']['vpc_flow_logs_detected'] = context['stats'].get('vpc_flow_logs_detected', 0) + 1
         
-        # Check if this is a VPC Flow Log
-        if is_vpc_flow_log(message_data.get("event_data",{})):
-            logger.info(f"Processing VPC Flow Log message {message_id}")
-            context['stats']['vpc_flow_logs_detected'] = context['stats'].get('vpc_flow_logs_detected', 0) + 1
-            
-            # Enrich with metadata for VPC Flow Logs
-            enriched_record = {
-                'source': 'gcp-pubsub-vpc-flow-logs',
-                'ingestion_time': datetime.now(timezone.utc).isoformat(),
-                'pubsub_message_id': message_id,
-                'resource_type': message_data.get('resource', {}).get('type', ''),
-                'data': message_data
-            }
-            
-            # Remove message_metadata from the data sent to SQS (internal tracking only)
-            if 'message_metadata' in enriched_record['data']:
-                del enriched_record['data']['message_metadata']
-        else:
-            logger.debug(f"Processing Security Finding message {message_id}")
-            context['stats']['security_findings_detected'] = context['stats'].get('security_findings_detected', 0) + 1
-            
-            # Use original structure for Security Findings
-            enriched_record = message_data
+        # Enrich with metadata for VPC Flow Logs
+        enriched_record = {
+            'source': 'gcp-pubsub-vpc-flow-logs',
+            'ingestion_time': datetime.now(timezone.utc).isoformat(),
+            'pubsub_message_id': message_id,
+            'resource_type': message_data.get('resource', {}).get('type', ''),
+            'data': message_data
+        }
         
-        # Create SQS batch entry
-        sqs_entries = sqs_client.create_batch_entries([enriched_record], f"gcp_message_{message_id[:8]}")
+        # Remove message_metadata from the data sent to SQS (internal tracking only)
+        if 'message_metadata' in enriched_record['data']:
+            del enriched_record['data']['message_metadata']
+    else:
+        logger.debug(f"Processing Security Finding message {message_id}")
+        context['stats']['security_findings_detected'] = context['stats'].get('security_findings_detected', 0) + 1
         
-        # Send to SQS
-        sqs_response = sqs_client.send_message_batch(sqs_queue_url, sqs_entries)
-        
-        if sqs_response.get('Successful'):
-            context['stats']['events_sent_to_sqs'] += 1
-            context['stats']['events_processed'] += 1
-            logger.debug(f"Successfully forwarded message {message_id} to SQS")
-        else:
-            context['stats']['errors'] += 1
-            logger.warning(f"Failed to send message {message_id} to SQS: {sqs_response.get('Failed', [])}")
-            
-    except Exception as e:
+        # Use original structure for Security Findings
+        enriched_record = message_data
+    
+    # Create SQS batch entry
+    sqs_entries = sqs_client.create_batch_entries([enriched_record], f"gcp_message_{message_id[:8]}")
+    
+    # Send to SQS
+    sqs_response = sqs_client.send_message_batch(sqs_queue_url, sqs_entries)
+    
+    if sqs_response.get('Successful'):
+        context['stats']['events_sent_to_sqs'] += 1
+        context['stats']['events_processed'] += 1
+        logger.debug(f"Successfully forwarded message {message_id} to SQS")
+    else:
         context['stats']['errors'] += 1
-        logger.error(f"Error processing message {message_id}: {str(e)}")
+        error_details = sqs_response.get('Failed', [])
+        error_msg = f"Failed to send message {message_id} to SQS: {error_details}"
+        logger.error(error_msg)
+        raise Exception(error_msg)  # Exception will now propagate to caller
 
 
 def process_pubsub_messages(gcp_credentials: Dict[str, Any], context_lambda, max_processing_time: int, max_messages: int) -> Dict[str, Any]:
@@ -213,11 +214,11 @@ def process_pubsub_messages(gcp_credentials: Dict[str, Any], context_lambda, max
         # Process each message
         for message in messages:
             try:
+                # Collect ack_id for batch acknowledgment after successful processing
+                ack_id = message.get('message_metadata', {}).get('ack_id')               
                 # Process message and send to SQS
                 on_message_received(processing_context, message, sqs, sqs_queue_url)
                 
-                # Collect ack_id for batch acknowledgment after successful processing
-                ack_id = message.get('message_metadata', {}).get('ack_id')
                 if ack_id:
                     ack_ids_to_acknowledge.append(ack_id)
                 
@@ -236,6 +237,8 @@ def process_pubsub_messages(gcp_credentials: Dict[str, Any], context_lambda, max
             except Exception as ack_error:
                 logger.error(f"Failed to acknowledge messages: {str(ack_error)}")
                 logger.warning("Messages will be redelivered by Pub/Sub")
+                stats['errors'] += len(ack_ids_to_acknowledge)
+                raise  # Re-raise to alert about acknowledgement failure
         
         logger.info(f"Pub/Sub processing completed: {stats['events_processed']} events processed, {stats['messages_acknowledged']} messages acknowledged")
         
@@ -307,7 +310,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         secrets_name = os.environ.get('GCP_CREDENTIALS_SECRET_NAME')
         gcp_project_id = os.environ.get('GCP_PROJECT_ID')
         gcp_subscription_id = os.environ.get('GCP_SUBSCRIPTION_ID')
-        max_messages = os.environ.get('MAX_MESSAGES', 100)
+        max_messages = int(os.environ.get('MAX_MESSAGES', '100'))
 
         # Validate required environment variables (no DynamoDB needed - Pub/Sub handles tracking)
         if not all([region, sqs_queue_url, secrets_name, gcp_project_id, gcp_subscription_id]):

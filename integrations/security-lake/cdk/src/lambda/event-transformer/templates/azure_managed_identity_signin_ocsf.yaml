@@ -1,0 +1,143 @@
+# 2025 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
+name: "azure_managed_identity_signin_to_ocsf_authentication"
+input_schema: "azure_managed_identity_signin_logs"
+output_schema: "ocsf_authentication_v110"
+
+# JSONPath extractors for Azure Managed Identity Sign-In Logs
+extractors:
+  # Core identification
+  time: "$.event_data.properties.createdDateTime"
+  signin_id: "$.event_data.properties.id"
+  service_principal_id: "$.event_data.properties.servicePrincipalId"
+  service_principal_name: "$.event_data.properties.servicePrincipalName"
+  app_id: "$.event_data.properties.appId"
+  app_display_name: "$.event_data.properties.appDisplayName"
+  
+  # Managed Identity specific fields
+  managed_identity_type: "$.event_data.properties.managedIdentityType"
+  federated_credential_id: "$.event_data.properties.federatedCredentialId"
+  
+  # Network and location
+  ip_address: "$.event_data.properties.ipAddress"
+  user_agent: "$.event_data.properties.userAgent"
+  location_city: "$.event_data.properties.location.city"
+  location_state: "$.event_data.properties.location.state"
+  location_country: "$.event_data.properties.location.countryOrRegion"
+  
+  # Status and result
+  status_error_code: "$.event_data.properties.status.errorCode"
+  result_type: "$.event_data.resultType"
+  result_description: "$.event_data.properties.resultDescription"
+  
+  # Risk assessment
+  risk_detail: "$.event_data.properties.riskDetail"
+  risk_level_aggregated: "$.event_data.properties.riskLevelAggregated"
+  risk_state: "$.event_data.properties.riskState"
+  
+  # Conditional Access
+  conditional_access_status: "$.event_data.properties.conditionalAccessStatus"
+  
+  # Resource accessed
+  resource_id: "$.event_data.properties.resourceId"
+  resource_display_name: "$.event_data.properties.resourceDisplayName"
+  
+  # Correlation
+  correlation_id: "$.event_data.correlationId"
+  tenant_id: "$.event_data.tenantId"
+  
+  # Category for validation
+  category: "$.event_data.category"
+
+# OCSF v1.1.0 Authentication template (class_uid: 3002)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 3002,
+    "class_name": "Authentication",
+    "category_uid": 3,
+    "category_name": "Identity & Access Management",
+    "activity_id": {% if extractors.status_error_code == 0 %}1{% else %}2{% endif %},
+    "activity_name": "{% if extractors.status_error_code == 0 %}Logon{% else %}Logoff{% endif %}",
+    "type_uid": 300201,
+    "type_name": "Managed Identity Authentication",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": {% if extractors.risk_level_aggregated == "none" %}1{% elif extractors.risk_level_aggregated == "low" %}2{% elif extractors.risk_level_aggregated == "medium" %}3{% elif extractors.risk_level_aggregated == "high" %}4{% elif extractors.risk_level_aggregated == "extreme" %}6{% else %}1{% endif %},
+    "severity": "{% if extractors.risk_level_aggregated == "none" %}Informational{% elif extractors.risk_level_aggregated == "low" %}Low{% elif extractors.risk_level_aggregated == "medium" %}Medium{% elif extractors.risk_level_aggregated == "high" %}High{% elif extractors.risk_level_aggregated == "extreme" %}Critical{% else %}Informational{% endif %}",
+    "status": "{% if extractors.status_error_code == 0 %}Success{% else %}Failure{% endif %}",
+    "status_id": {% if extractors.status_error_code == 0 %}1{% else %}2{% endif %},
+    "status_code": "{{ extractors.status_error_code | default('0') }}",
+    "status_detail": "{{ extractors.result_description | default('') | json_escape }}",
+    "message": "Azure Managed Identity ({{ extractors.managed_identity_type | default('Unknown') }}) {% if extractors.status_error_code == 0 %}successful{% else %}failed{% endif %} sign-in: {{ extractors.service_principal_name | default('Unknown') }} to {{ extractors.resource_display_name | default('Unknown Resource') }}",
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Microsoft Entra ID",
+        "vendor_name": "Microsoft",
+        "feature": {
+          "name": "Managed Identity Sign-In Logs"
+        }
+      },
+      "uid": "{{ extractors.signin_id }}",
+      "correlation_uid": "{{ extractors.correlation_id }}"
+    },
+    "cloud": {
+      "tenant_uid": "{{ extractors.tenant_id }}"
+    },
+    "actor": {
+      "user": {
+        "name": "{{ extractors.service_principal_name | default('Unknown Managed Identity') }}",
+        "uid": "{{ extractors.service_principal_id }}",
+        "type": "Managed Identity",
+        "type_id": 3
+      },
+      "app_name": "{{ extractors.app_display_name | default('') }}",
+      "app_uid": "{{ extractors.app_id }}"
+    },
+    "src_endpoint": {
+      {% if extractors.ip_address | extract_ip | is_valid %}"ip": "{{ extractors.ip_address | extract_ip }}",
+      {% endif %}"port": {{ (extractors.ip_address | extract_port) | default(443) | int }},
+      "svc_name": "HTTPS"{% if extractors.location_city or extractors.location_state or extractors.location_country %},
+      "location": {
+        {% if extractors.location_city %}"city": "{{ extractors.location_city }}"{% if extractors.location_state or extractors.location_country %},{% endif %}{% endif %}
+        {% if extractors.location_state %}"region": "{{ extractors.location_state }}"{% if extractors.location_country %},{% endif %}{% endif %}
+        {% if extractors.location_country %}"country": "{{ extractors.location_country }}"{% endif %}
+      }{% endif %}{% if extractors.user_agent %},
+      "agent_list": [
+        {
+          "name": "{{ extractors.user_agent }}",
+          "type": "Managed Identity Client",
+          "type_id": 99
+        }
+      ]{% endif %}
+    },
+    "dst_endpoint": {
+      "svc_name": "{{ extractors.resource_display_name | default('Azure Resource') }}",
+      "uid": "{{ extractors.resource_id }}"
+    },
+    "auth_protocol": "OAuth2",
+    "auth_protocol_id": 2,
+    "is_remote": true,
+    "logon_type": "Managed Identity",
+    "logon_type_id": 99{% if extractors.risk_level_aggregated or extractors.risk_detail or extractors.risk_state %},
+    "risk_score": {% if extractors.risk_level_aggregated == "none" %}0{% elif extractors.risk_level_aggregated == "low" %}25{% elif extractors.risk_level_aggregated == "medium" %}50{% elif extractors.risk_level_aggregated == "high" %}75{% elif extractors.risk_level_aggregated == "extreme" %}100{% else %}0{% endif %},
+    "risk_level": "{{ extractors.risk_level_aggregated | default('') }}",
+    "risk_level_id": {% if extractors.risk_level_aggregated == "none" %}0{% elif extractors.risk_level_aggregated == "low" %}1{% elif extractors.risk_level_aggregated == "medium" %}2{% elif extractors.risk_level_aggregated == "high" %}3{% elif extractors.risk_level_aggregated == "extreme" %}4{% else %}0{% endif %}{% endif %}{% if extractors.conditional_access_status %},
+    "observables": [
+      {
+        "name": "conditional_access_status",
+        "type": "Policy Evaluation",
+        "type_id": 99,
+        "value": "{{ extractors.conditional_access_status }}"
+      }
+    ]{% endif %},
+    "unmapped": {
+      "managed_identity_type": "{{ extractors.managed_identity_type | default('') }}",
+      "federated_credential_id": "{{ extractors.federated_credential_id | default('') }}",
+      "risk_detail": "{{ extractors.risk_detail | default('') }}",
+      "risk_state": "{{ extractors.risk_state | default('') }}"
+    }
+  }

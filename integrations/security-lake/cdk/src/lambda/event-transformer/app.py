@@ -668,6 +668,21 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     
                     for cloud_event in cloud_events:
                         try:
+                            # Check if event is already in OCSF format (e.g., from flow-log-processor)
+                            if is_ocsf_format(cloud_event):
+                                logger.info(
+                                    "Event already in OCSF format, passing through to Security Lake",
+                                    extra={
+                                        "class_uid": cloud_event.get("class_uid"),
+                                        "type_name": cloud_event.get("type_name"),
+                                        "metadata_product": cloud_event.get("metadata", {}).get("product", {}).get("name")
+                                    }
+                                )
+                                
+                                # Add directly to OCSF events list without transformation
+                                ocsf_events.append(cloud_event)
+                                continue
+                            
                             # Determine event type for proper template selection
                             event_type = event_mapper._determine_event_type(cloud_event)
                             
@@ -1031,12 +1046,13 @@ def is_flow_log_event(message_body: Dict[str, Any]) -> bool:
         if isinstance(message_body, dict) and 'event_data' in message_body:
             event_data = message_body['event_data']
             
-            # Check if event_data is a list
+            # Check if event_data is a list (Event Grid format)
             if isinstance(event_data, list) and len(event_data) > 0:
                 # Check first event for BlobCreated type
                 first_event = event_data[0]
                 if isinstance(first_event, dict):
-                    event_type = first_event.get('type', '')
+                    # Event Grid uses 'eventType' field, not 'type'
+                    event_type = first_event.get('eventType', '') or first_event.get('type', '')
                     
                     # Check for Microsoft.Storage.BlobCreated type
                     if event_type == 'Microsoft.Storage.BlobCreated':
@@ -1051,6 +1067,33 @@ def is_flow_log_event(message_body: Dict[str, Any]) -> bool:
     except Exception as e:
         logger.error(f"Error checking for Flow Log event: {str(e)}")
         return False
+
+
+def is_ocsf_format(event_data: dict) -> bool:
+    """
+    Detect if an event is already in OCSF format.
+    
+    OCSF events have specific required fields that distinguish them from raw events.
+    
+    Args:
+        event_data: The event data to check
+        
+    Returns:
+        bool: True if event is already OCSF formatted
+    """
+    # Check for OCSF mandatory fields
+    has_class_uid = 'class_uid' in event_data
+    has_metadata = 'metadata' in event_data
+    has_time = 'time' in event_data
+    
+    # OCSF events will have all three
+    if has_class_uid and has_metadata and has_time:
+        # Additional validation: metadata should have product info
+        if isinstance(event_data.get('metadata'), dict):
+            has_product = 'product' in event_data['metadata']
+            return has_class_uid and has_metadata and has_time and has_product
+    
+    return False
 
 
 def extract_cloud_events_from_message(message_body: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -1089,6 +1132,15 @@ def extract_cloud_events_from_message(message_body: Dict[str, Any]) -> List[Dict
                         cloud_events = [message_body]
                 else:
                     # Single event with event_data structure (most common)
+                    cloud_events = [message_body]
+            elif 'records' in message_body and isinstance(message_body.get('records'), list):
+                # Handle top-level records array (Azure Activity Logs direct format)
+                records = message_body['records']
+                if len(records) > 0:
+                    # Wrap each record in event_data structure for consistent processing
+                    cloud_events = [{'event_data': record} for record in records]
+                    logger.info(f"Extracted {len(records)} events from top-level records array")
+                else:
                     cloud_events = [message_body]
             else:
                 # Treat entire message as single event

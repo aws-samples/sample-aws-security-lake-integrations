@@ -1,53 +1,101 @@
-name: "security_assessment_to_ocsf_compliance_finding"
+name: "azure_security_assessment_to_ocsf_detection_finding"
 input_schema: "azure_security_assessment"
-output_schema: "ocsf_compliance_finding_v110"
+output_schema: "ocsf_detection_finding_v110"
 
 # JSONPath expressions to extract data from Azure security assessment events
 extractors:
   # Core Assessment Fields
-  assessment_id: "$.body.event_data.id"
-  assessment_name: "$.body.event_data.properties.displayName"
-  assessment_type: "$.body.event_data.type"
-  tenant_id: "$.body.event_data.tenantId"
+  finding_name: "$.body.event_data.id"
+  finding_id: "$.body.event_data.id"
+  parent: "$.body.event_data.properties.metadata.policyDefinitionId"
+  resource_name: "$.body.event_data.properties.resourceDetails.id"
+  state: "$.body.event_data.properties.status.code"
+  category: "$.body.event_data.properties.metadata.displayName"
+  external_uri: "$.body.event_data.properties.links.azurePortal"
+  source_properties: "$.body.event_data.properties.metadata"
   
-  # Metadata - Primary source of meaningful information
-  display_name: "$.body.event_data.properties.metadata.displayName"
-  description: "$.body.event_data.properties.metadata.description"
+  # Security Marks (Azure equivalent)
+  security_marks: "$.body.event_data.properties.metadata.categories"
+  
+  # Timestamps
+  event_time: "$.body.event_data.properties.status.statusChangeDate"
+  create_time: "$.body.event_data.properties.status.firstEvaluationDate"
+  
+  # Severity
   severity: "$.body.event_data.properties.metadata.severity"
-  assessment_type_metadata: "$.body.event_data.properties.metadata.assessmentType"
+  mute: "$.body.event_data.properties.status.cause"
   
-  # Status - Compliance status indicators
-  status_code: "$.body.event_data.properties.status.code"
-  status_cause: "$.body.event_data.properties.status.cause"
-  status_description: "$.body.event_data.properties.status.description"
-  status_change_date: "$.body.event_data.properties.status.statusChangeDate"
-  first_evaluation_date: "$.body.event_data.properties.status.firstEvaluationDate"
+  # Threat Specific (Azure equivalent from threats list)
+  indicator: "$.body.event_data.properties.metadata.threats"
+  indicator_domains: "$.body.event_data.properties.metadata.threats"
+  indicator_ips: "$.body.event_data.properties.metadata.threats"
+  indicator_uris: "$.body.event_data.properties.links.azurePortal"
+  indicator_signatures: "$.body.event_data.properties.metadata.threats"
   
-  # Resource Information - What's being assessed
-  resource_id: "$.body.event_data.properties.resourceDetails.id"
-  resource_name: "$.body.event_data.properties.resourceDetails.resourceName"
+  # Access details for threat actors (not directly available in Azure assessments)
+  access: "$.body.event_data.properties.resourceDetails"
+  access_principal_email: "$.body.event_data.properties.resourceDetails.resourceName"
+  access_caller_ip: "$.body.event_data.properties.resourceDetails.Source"
+  access_user_agent: "$.body.event_data.properties.metadata.assessmentType"
+  access_service_name: "$.body.event_data.type"
+  access_method_name: "$.body.event_data.properties.metadata.assessmentType"
+  
+  # Kubernetes details (not typically in Azure security assessments)
+  kubernetes: "$.body.event_data.properties.resourceDetails.kubernetes"
+  
+  # Processes involved (not typically in Azure security assessments)
+  processes: "$.body.event_data.properties.resourceDetails.processes"
+  
+  # Description and explanation
+  description: "$.body.event_data.properties.metadata.description"
+  recommendation: "$.body.event_data.properties.metadata.remediationDescription"
+  next_steps: "$.body.event_data.properties.metadata.remediationDescription"
+  
+  # Azure Resource Information
+  project_id: "$.body.event_data.tenantId"
+  project_display_name: "$.body.event_data.tenantId"
   resource_type: "$.body.event_data.properties.resourceDetails.resourceType"
-  resource_source: "$.body.event_data.properties.resourceDetails.Source"
+  resource_parent: "$.body.event_data.properties.resourceDetails.id"
+  resource_display_name: "$.body.event_data.properties.resourceDetails.resourceName"
+  folders: "$.body.event_data.properties.metadata.categories"
   
-  # Remediation and Policy - Action guidance
-  remediation_description: "$.body.event_data.properties.metadata.remediationDescription"
-  policy_definition_id: "$.body.event_data.properties.metadata.policyDefinitionId"
+  # Finding Class Information
+  finding_class: "$.body.event_data.properties.metadata.assessmentType"
   
-  # Security Classifications - Threat context
-  categories: "$.body.event_data.properties.metadata.categories"
-  threats: "$.body.event_data.properties.metadata.threats"
+  # MITRE ATT&CK
+  mitre_attack: "$.body.event_data.properties.metadata"
   tactics: "$.body.event_data.properties.metadata.tactics"
   techniques: "$.body.event_data.properties.metadata.techniques"
   
-  # Azure Portal Link - Direct access for analysts
-  azure_portal_link: "$.body.event_data.properties.links.azurePortal"
+  # Connections (not typically in Azure security assessments)
+  connections: "$.body.event_data.properties.resourceDetails.connections"
+  
+  # Exfiltration details (not typically in Azure security assessments)
+  exfiltration: "$.body.event_data.properties.resourceDetails.exfiltration"
+  
+  # IAM bindings (not typically in Azure security assessments)
+  iam_bindings: "$.body.event_data.properties.resourceDetails.iamBindings"
+  
+  # Canonical Name for asset identification
+  canonical_name: "$.body.event_data.id"
   
   # Processing Metadata
   processing_source: "$.processing_metadata.source"
   processor_version: "$.processing_metadata.processor_version"
   processed_timestamp: "$.processing_metadata.processed_timestamp"
+  notificationConfigName: "$.body.event_data.type"
+  
+  # Azure-specific fields
+  tenant_id: "$.body.event_data.tenantId"
+  assessment_type: "$.body.event_data.type"
+  assessment_type_metadata: "$.body.event_data.properties.metadata.assessmentType"
+  status_cause: "$.body.event_data.properties.status.cause"
+  status_description: "$.body.event_data.properties.status.description"
+  policy_definition_id: "$.body.event_data.properties.metadata.policyDefinitionId"
+  categories: "$.body.event_data.properties.metadata.categories"
+  threats: "$.body.event_data.properties.metadata.threats"
 
-# OCSF v1.1.0 compliant template for Compliance Finding (Class 2003)
+# OCSF v1.1.0 compliant template for Detection Finding (Threat)
 template: |
   {
     "version": "1.1.0",
@@ -55,112 +103,151 @@ template: |
     "activity_name": "Create",
     "category_uid": 2,
     "category_name": "Findings",
-    "class_uid": 2003,
-    "class_name": "Compliance Finding",
-    "type_uid": 200301,
-    "type_name": "Compliance Finding: Create",
-    "time": {{ extractors.status_change_date | to_unix_timestamp_ms }},
-    "severity_id": {{ extractors.severity | map_azure_severity_to_compliance_ocsf }},
-    "severity": "{{ extractors.severity | default('Medium') }}",
-    "status": "{{ extractors.status_code | map_compliance_status }}",
-    "status_id": {{ extractors.status_code | map_compliance_status_id }},
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "time": {{ extractors.event_time | to_unix_timestamp_ms | default(extractors.create_time | to_unix_timestamp_ms) }},
+    "severity_id": {{ extractors.severity | map_azure_severity_to_ocsf }},
+    "severity": "{{ extractors.severity | format_severity }}",
+    "status": "{{ extractors.state | map_azure_state_to_status }}",
+    "status_id": {{ extractors.state | map_azure_state_to_status_id }},
+    "status_detail": "{{ extractors.mute | default('') }}",
     "cloud": {
       "provider": "Azure",
       "account": {
         "uid": "{{ extractors.tenant_id | default('') }}",
+        "name": "{{ extractors.project_display_name | default('') }}",
         "type": "Azure Tenant",
         "type_id": 10
-      },
-      "region": "{{ extractors.resource_id | extract_azure_region | default('global') }}"
+      }{% set subscription_id = extractors.resource_name | extract_azure_subscription_id %}{% if subscription_id %},
+      "org": {
+        "uid": "{{ subscription_id }}",
+        "name": "{{ extractors.resource_name | extract_azure_subscription_name }}"
+      }{% endif %}{% set region = extractors.resource_name | extract_azure_region %}{% if region %},
+      "region": "{{ region }}"{% endif %}
     },
     "finding_info": {
-      "uid": "{{ extractors.assessment_id }}",
-      "title": "{{ extractors.display_name | default(extractors.assessment_name) | default('Azure Security Assessment') }}",
-      "desc": "{{ extractors.description | default(extractors.status_description) | default('No description available') | json_escape }}",
-      "types": ["{{ extractors.assessment_type_metadata | default('BuiltIn') }}"]{% if extractors.azure_portal_link %},
-      "src_url": "{{ extractors.azure_portal_link }}"{% endif %},
-      "created_time": {{ extractors.first_evaluation_date | to_unix_timestamp_ms }},
-      "modified_time": {{ extractors.status_change_date | to_unix_timestamp_ms }},
+      "uid": "{{ extractors.finding_id | extract_finding_uid }}",
+      "title": "{{ extractors.category | default('Azure Security Assessment') }}",
+      "desc": "{{ extractors.description | default(extractors.category) | json_escape }}"{% if extractors.external_uri %},
+      "src_url": "{{ extractors.external_uri }}"{% endif %},
+      "types": ["{{ extractors.category }}", "Security Assessment", "Detection"]{% if extractors.finding_class %},
+      "related_events": [
+        {
+          "type": "{{ extractors.finding_class }}",
+          "type_uid": {{ extractors.finding_class | map_finding_class }}
+        }
+      ]{% endif %},
+      "created_time": {{ extractors.create_time | to_unix_timestamp_ms }},
+      "modified_time": {{ extractors.event_time | to_unix_timestamp_ms }},
       "product": {
         "name": "Microsoft Defender for Cloud",
         "vendor_name": "Microsoft",
         "version": "1.0",
         "feature": {
-          "name": "Security Assessment",
-          "uid": "{{ extractors.assessment_type }}"
+          "name": "Security Assessment"
         }
-      }{% if extractors.remediation_description %},
-      "remediation": {
-        "desc": "{{ extractors.remediation_description | json_escape }}",
-        "kb_articles": []
-      }{% endif %}
-    },
-    "compliance": {
-      "status": "{{ extractors.status_code | map_compliance_status }}",
-      "status_detail": "{{ extractors.status_description | default('') | json_escape }}"{% if extractors.remediation_description %},
-      "requirements": ["{{ extractors.remediation_description | json_escape }}"]{% endif %}{% if extractors.categories %},
-      "controls": {{ extractors.categories | to_json }}{% endif %}
-    }{% if extractors.threats or extractors.categories %},
-    "category_name": "{{ extractors.categories[0] | default('Security') }}"{% endif %}{% if extractors.tactics %},
+      }
+    },{% if extractors.threats %}
+    "observables": [
+      {% for threat in extractors.threats %}
+      {
+        "name": "{{ threat }}",
+        "type": "Other",
+        "type_id": 99,
+        "reputation": {
+          "base_score": {{ extractors.severity | map_severity_to_reputation_score }},
+          "score_id": {{ extractors.severity | map_severity_to_reputation_id }}
+        }
+      }{{ ',' if not loop.last else '' }}
+      {% endfor %}
+    ],{% endif %}{% if extractors.tactics %}
     "attacks": [
       {% for tactic in extractors.tactics %}
       {
-        "tactic": {
-          "name": "{{ tactic }}",
-          "uid": "{{ tactic | slugify }}"
-        }{% if extractors.techniques and extractors.techniques[loop.index0] %},
+        "version": "v13",
+        "tactics": [
+          {
+            "name": "{{ tactic }}",
+            "uid": "{{ tactic | map_mitre_tactic_uid }}"
+          }
+        ]{% if extractors.techniques and extractors.techniques[loop.index0] %},
         "technique": {
           "name": "{{ extractors.techniques[loop.index0] }}",
           "uid": "{{ extractors.techniques[loop.index0] | slugify }}"
         }{% endif %}
       }{{ ',' if not loop.last else '' }}
       {% endfor %}
-    ]{% endif %}{% if extractors.resource_id %},
-    "resources": [
-      {
-        "uid": "{{ extractors.resource_id }}",
-        "name": "{{ extractors.resource_name | default('Unknown Resource') }}",
-        "type": "{{ extractors.resource_type | default('Azure Resource') }}",
-        "cloud_partition": "azure-commercial",
-        "region": "{{ extractors.resource_id | extract_azure_region | default('global') }}",
-        "labels": ["compliance", "security-assessment"]
-      }
-    ]{% endif %}{% if extractors.threats %},
-    "observables": [
-      {% for threat in extractors.threats %}
-      {
-        "name": "threat_category",
-        "type": "Other",
-        "type_id": 99,
-        "value": "{{ threat }}"
-      }{{ ',' if not loop.last else '' }}
-      {% endfor %}
-    ]{% endif %},
+    ],{% endif %}{% if extractors.resource_name %}
+    "resources": {
+      "uid": "{{ extractors.resource_name }}",
+      "name": "{{ extractors.resource_display_name | default(extractors.resource_name | extract_resource_name) }}",
+      "type": "{{ extractors.resource_type | default('') }}",
+      "cloud_partition": "azure-commercial",
+      "region": "{{ extractors.resource_name | extract_azure_region }}"{% if extractors.canonical_name %},
+      "data": {
+        "canonical_name": "{{ extractors.canonical_name }}"
+      }{% endif %}{% if extractors.tenant_id %},
+      "owner": {
+        "account": {
+          "uid": "{{ extractors.tenant_id }}",
+          "name": "{{ extractors.project_display_name | default('') }}"
+        }
+      }{% endif %},
+      "role_id": 3,
+      "role": "Affected"{% if extractors.categories %},
+      "labels": [
+        {% for category in extractors.categories %}
+        "category:{{ category }}"{{ ',' if not loop.last else '' }}
+        {% endfor %}
+      ]{% endif %}
+    },{% endif %}{% if extractors.recommendation or extractors.next_steps %}
+    "remediation": {
+      "desc": "{{ extractors.recommendation | default('') | json_escape }}{% if extractors.next_steps %} {{ extractors.next_steps | json_escape }}{% endif %}",
+      "references": [
+        {% if extractors.external_uri %}
+        "{{ extractors.external_uri }}"
+        {% endif %}
+      ]
+    },{% endif %}
     "metadata": {
       "version": "1.1.0",
       "product": {
-        "name": "Microsoft Defender for Cloud - Security Assessment",
+        "name": "Microsoft Defender for Cloud",
         "vendor_name": "Microsoft",
         "version": "1.0",
-        "lang": "en",
-        "url_string": "{{ extractors.azure_portal_link | default('') }}"
+        "feature": {
+          "name": "{{ extractors.category }}"
+        }
       },
-      "profiles": ["security_control", "cloud"],
-      "event_code": "{{ extractors.assessment_type }}"{% if extractors.processed_timestamp %},
+      "profiles": ["security_control", "cloud", "detection"],
+      "event_code": "{{ extractors.category }}"{% if extractors.processed_timestamp %},
       "logged_time": {{ extractors.processed_timestamp | to_unix_timestamp_ms }}{% endif %},
-      "original_time": {{ extractors.first_evaluation_date | to_unix_timestamp_ms }}{% if extractors.policy_definition_id %},
-      "correlation_uid": "{{ extractors.policy_definition_id }}"{% endif %}
+      "original_time": {{ extractors.event_time | default(extractors.create_time) | to_unix_timestamp_ms }},
+      "correlation_uid": "{{ extractors.finding_id | extract_finding_uid }}"{% if extractors.notificationConfigName %},
+      "labels": [
+        "assessment_type:{{ extractors.notificationConfigName | extract_assessment_type_name }}"{% if extractors.mute %},
+        "status_cause:{{ extractors.mute }}"{% endif %}{% if extractors.threats %},
+        {% for threat in extractors.threats %}
+        "threat:{{ threat }}"{{ ',' if not loop.last else '' }}
+        {% endfor %}
+        {% endif %}
+      ]{% endif %}
     },
     "unmapped": {
+      "source_properties": {{ extractors.source_properties | to_json | default('{}') }},
+      "security_marks": {{ extractors.security_marks | to_json | default('{}') }},
       "azure_tenant_id": "{{ extractors.tenant_id | default('') }}",
       "assessment_type": "{{ extractors.assessment_type_metadata | default('') }}",
       "policy_definition_id": "{{ extractors.policy_definition_id | default('') }}",
-      "status_cause": "{{ extractors.status_cause | default('') }}"
+      "status_cause": "{{ extractors.status_cause | default('') }}",
+      "status_description": "{{ extractors.status_description | default('') | json_escape }}"
     },
-    "raw_data": "{{ body | to_json | json_escape }}"
+    "raw_data": {{ azure_event | to_json }}
   }
 
-# Additional filters for OCSF compliance
+# Custom filters for Azure-specific data transformations
 filters:
   to_unix_timestamp_ms: |
     def to_unix_timestamp_ms(timestamp_str):
@@ -169,13 +256,174 @@ filters:
         try:
             if timestamp_str.endswith('Z'):
                 dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-            elif '+' in timestamp_str:
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
                 dt = datetime.fromisoformat(timestamp_str)
             else:
-                dt = datetime.fromisoformat(timestamp_str + '+00:00' if 'T' in timestamp_str else timestamp_str)
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
             return int(dt.timestamp() * 1000)
         except:
             return int(datetime.utcnow().timestamp() * 1000)
+  
+  extract_azure_subscription_id: |
+    def extract_azure_subscription_id(resource_name):
+        # Extract from: /subscriptions/xxx-xxx/resourceGroups/...
+        if not resource_name:
+            return ''
+        if '/subscriptions/' in resource_name:
+            parts = resource_name.split('/subscriptions/')
+            if len(parts) > 1:
+                subscription_part = parts[1].split('/')[0]
+                return subscription_part
+        return ''
+  
+  extract_azure_subscription_name: |
+    def extract_azure_subscription_name(resource_name):
+        # Extract subscription name from resource path
+        if not resource_name or '/subscriptions/' not in resource_name:
+            return ''
+        parts = resource_name.split('/subscriptions/')
+        if len(parts) > 1:
+            sub_id = parts[1].split('/')[0]
+            return f"Subscription {sub_id}"
+        return ''
+  
+  extract_azure_region: |
+    def extract_azure_region(resource_name):
+        # Extract region from resource name if present
+        if not resource_name:
+            return 'global'
+        # Azure resources often don't have region in the path, use global
+        # Could be extended to look up resource location if needed
+        return 'global'
+  
+  extract_finding_uid: |
+    def extract_finding_uid(finding_name):
+        # Extract the finding ID from the full resource name
+        if not finding_name:
+            return ''
+        parts = finding_name.split('/')
+        if len(parts) > 0:
+            return parts[-1]
+        return finding_name
+  
+  extract_assessment_type_name: |
+    def extract_assessment_type_name(type_name):
+        # Extract assessment type name from full path
+        if not type_name:
+            return ''
+        parts = type_name.split('/')
+        if len(parts) > 0:
+            return parts[-1]
+        return type_name
+  
+  map_azure_severity_to_ocsf: |
+    def map_azure_severity_to_ocsf(severity):
+        # Map Azure severity to OCSF severity_id
+        severity_map = {
+            'HIGH': 4,      # High
+            'MEDIUM': 3,    # Medium
+            'LOW': 2,       # Low
+            'INFORMATIONAL': 1  # Informational
+        }
+        return severity_map.get(str(severity).upper(), 1)
+  
+  format_severity: |
+    def format_severity(severity):
+        if not severity:
+            return 'Unknown'
+        return str(severity).capitalize()
+  
+  map_azure_state_to_status: |
+    def map_azure_state_to_status(state):
+        # Map Azure assessment status to OCSF status
+        state_map = {
+            'UNHEALTHY': 'New',
+            'HEALTHY': 'Suppressed',
+            'NOTAPPLICABLE': 'Suppressed'
+        }
+        return state_map.get(str(state).upper(), 'Other')
+  
+  map_azure_state_to_status_id: |
+    def map_azure_state_to_status_id(state):
+        # Map Azure assessment status to OCSF status_id
+        state_map = {
+            'UNHEALTHY': 1,  # New
+            'HEALTHY': 4,    # Suppressed
+            'NOTAPPLICABLE': 4  # Suppressed
+        }
+        return state_map.get(str(state).upper(), 99)
+  
+  map_finding_class: |
+    def map_finding_class(finding_class):
+        # Map Azure assessment type to OCSF type_uid
+        class_map = {
+            'BUILTIN': 200401,  # Detection Finding
+            'CUSTOMASSESSMENT': 200401,  # Detection Finding
+            'CUSTOMERPOLICY': 200301  # Compliance Finding
+        }
+        return class_map.get(str(finding_class).upper(), 200401)
+  
+  extract_resource_name: |
+    def extract_resource_name(resource_path):
+        if not resource_path:
+            return ''
+        parts = resource_path.split('/')
+        if len(parts) > 0:
+            return parts[-1]
+        return resource_path
+  
+  map_mitre_tactic_uid: |
+    def map_mitre_tactic_uid(tactic_name):
+        # Map MITRE tactic names to UIDs (simplified mapping)
+        tactic_map = {
+            'Reconnaissance': 'TA0043',
+            'Resource Development': 'TA0042',
+            'Initial Access': 'TA0001',
+            'Execution': 'TA0002',
+            'Persistence': 'TA0003',
+            'Privilege Escalation': 'TA0004',
+            'Defense Evasion': 'TA0005',
+            'Credential Access': 'TA0006',
+            'Discovery': 'TA0007',
+            'Lateral Movement': 'TA0008',
+            'Collection': 'TA0009',
+            'Command and Control': 'TA0011',
+            'Exfiltration': 'TA0010',
+            'Impact': 'TA0040'
+        }
+        return tactic_map.get(tactic_name, 'TA0000')
+  
+  map_severity_to_reputation_score: |
+    def map_severity_to_reputation_score(severity):
+        # Map Azure severity to reputation score (0-100, lower is worse)
+        severity_map = {
+            'HIGH': 20,
+            'MEDIUM': 40,
+            'LOW': 60,
+            'INFORMATIONAL': 80
+        }
+        return severity_map.get(str(severity).upper(), 50)
+  
+  map_severity_to_reputation_id: |
+    def map_severity_to_reputation_id(severity):
+        # Map Azure severity to OCSF reputation score_id
+        # 1=Informational, 2=Low, 3=Medium, 4=High, 5=Critical
+        severity_map = {
+            'HIGH': 4,
+            'MEDIUM': 3,
+            'LOW': 2,
+            'INFORMATIONAL': 1
+        }
+        return severity_map.get(str(severity).upper(), 1)
+  
+  to_json: |
+    def to_json(data):
+        if not data:
+            return '{}'
+        try:
+            return json.dumps(data)
+        except:
+            return '{}'
   
   json_escape: |
     def json_escape(text):
@@ -184,3 +432,9 @@ filters:
         import json
         escaped = json.dumps(text)[1:-1]
         return escaped
+  
+  slugify: |
+    def slugify(text):
+        if not text:
+            return ''
+        return text.lower().replace(' ', '_').replace('-', '_')

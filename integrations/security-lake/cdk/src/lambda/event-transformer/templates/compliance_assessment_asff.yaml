@@ -53,34 +53,48 @@ template: |
       "Label": "{{ extractors.severity | asff_severity_label }}",
       "Normalized": {{ extractors.severity | asff_severity_normalized }}
     },
-    "Title": "{{ extractors.assessment_name | default_if_invalid(extractors.assessment_description | truncate(100)) | default_if_invalid('Azure Compliance Assessment') | replace('\\', '\\\\') | replace('"', '\\"') }}",
-    "Description": "{{ extractors.assessment_description | default_if_invalid('Compliance assessment for Azure resources') | replace('\\', '\\\\') | replace('"', '\\"') | replace('\n', ' ') | truncate(1024) }}",
+    "FindingProviderFields": {
+      "Types": ["Software and Configuration Checks/Industry and Regulatory Standards"],
+      "Severity": {
+        "Label": "{{ extractors.severity | asff_severity_label }}",
+        "Original": "{{ extractors.severity | upper }}"
+      }
+    },
+    "Title": "{{ extractors.assessment_name | default_if_invalid(extractors.assessment_description | truncate(100)) | default_if_invalid('Azure Compliance Assessment') | json_escape }}",
+    "Description": "{{ extractors.assessment_description | default_if_invalid('Compliance assessment for Azure resources') | json_escape | truncate(1024) }}",
     "ProductFields": {
       {% if extractors.standard_name | is_valid %}"azure/complianceStandard": "{{ extractors.standard_name }}",{% endif %}
       {% if extractors.subscription_id | is_valid %}"azure/subscriptionId": "{{ extractors.subscription_id }}",{% endif %}
       {% if extractors.compliance_state | is_valid %}"azure/state": "{{ extractors.compliance_state }}",{% endif %}
       {% if extractors.control_id | is_valid %}"azure/controlId": "{{ extractors.control_id }}",{% endif %}
       "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Microsoft Defender for Cloud - Compliance') }}",
-      "aws/securityhub/CompanyName": "Microsoft"
+      "aws/securityhub/CompanyName": "Microsoft",
+      "aws/securityhub/FindingId": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default/{{ extractors.assessment_id | default(generate_uuid()) }}"
     },
     "Compliance": {
-      "Status": "{{ extractors.compliance_state | compliance_status }}",
-      {% if extractors.standard_name | is_valid or extractors.control_id | is_valid %}"RelatedRequirements": [
-        {% if extractors.control_id | is_valid %}"{{ extractors.control_id }}"{% if extractors.standard_name | is_valid %},{% endif %}{% endif %}
-        {% if extractors.standard_name | is_valid %}"{{ extractors.standard_name }}"{% endif %}
-      ],{% endif %}
-      {% if extractors.control_id | is_valid %}"SecurityControlId": "{{ extractors.control_id }}",{% endif %}
-      {% if extractors.standard_name | is_valid %}"AssociatedStandards": [{
+      "Status": "{{ extractors.compliance_state | compliance_status }}"
+      {%- if extractors.standard_name | is_valid or extractors.control_id | is_valid -%}
+      ,"RelatedRequirements": [
+        {%- if extractors.control_id | is_valid -%}"{{ extractors.control_id }}"{%- if extractors.standard_name | is_valid -%},{%- endif -%}{%- endif -%}
+        {%- if extractors.standard_name | is_valid -%}"{{ extractors.standard_name }}"{%- endif -%}
+      ]
+      {%- endif -%}
+      {%- if extractors.control_id | is_valid -%}
+      ,"SecurityControlId": "{{ extractors.control_id }}"
+      {%- endif -%}
+      {%- if extractors.standard_name | is_valid -%}
+      ,"AssociatedStandards": [{
         "StandardsId": "standards/{{ extractors.standard_name | lower | replace(' ', '-') }}"
-      }],{% endif %}
-      "StatusReasons": [{
+      }]
+      {%- endif -%}
+      ,"StatusReasons": [{
         "ReasonCode": "{{ extractors.compliance_state | compliance_reason_code }}",
-        "Description": "{{ extractors.assessment_description | default_if_invalid(extractors.assessment_name) | default_if_invalid('Compliance assessment') | replace('"', '\\"') | replace('\n', ' ') | truncate(256) }}"
+        "Description": "{{ extractors.assessment_description | default_if_invalid(extractors.assessment_name) | default_if_invalid('Compliance assessment') | json_escape | truncate(256) }}"
       }]
     },
     "Remediation": {
       "Recommendation": {
-        "Text": "{{ extractors.remediation_steps | default_if_invalid('Review Azure compliance recommendations in the Azure Portal') | replace('"', '\\"') | replace('\n', ' ') | truncate(512) }}",
+        "Text": "{{ extractors.remediation_steps | default_if_invalid('Review Azure compliance recommendations in the Azure Portal') | json_escape | truncate(512) }}",
         "Url": "https://portal.azure.com/#blade/Microsoft_Azure_Policy/PolicyMenuBlade/Compliance"
       }
     },
@@ -90,6 +104,138 @@ template: |
       "Partition": "aws",
       "Region": "{{ aws_region }}"
     }],
+    "Workflow": {"Status": "NEW"},
+    "Region": "{{ aws_region }}",
     "WorkflowState": "NEW",
     "RecordState": "{{ extractors.compliance_state | asff_record_state }}"
   }
+
+# Custom filters for Azure Compliance Assessment ASFF transformation
+filters:
+  compliance_reason_code: |
+    def compliance_reason_code(compliance_state):
+        # Valid ASFF ReasonCode values: CONSTRAINT_NOT_SATISFIED, NOT_APPLICABLE, NOT_VERIFIED, INTERNAL_SERVICE_ERROR, RESOURCE_NOT_FOUND, RESOURCE_DELETED
+        if not compliance_state or not isinstance(compliance_state, str):
+            return 'INTERNAL_SERVICE_ERROR'
+        state_upper = compliance_state.upper()
+        if state_upper in ['FAILED', 'NONCOMPLIANT', 'NON_COMPLIANT', 'UNHEALTHY']:
+            return 'CONSTRAINT_NOT_SATISFIED'
+        elif state_upper in ['PASSED', 'COMPLIANT', 'HEALTHY']:
+            return 'NOT_APPLICABLE'
+        elif state_upper in ['NOTAPPLICABLE', 'NOT_APPLICABLE', 'EXEMPT']:
+            return 'NOT_APPLICABLE'
+        else:
+            return 'INTERNAL_SERVICE_ERROR'
+  
+  compliance_status: |
+    def compliance_status(compliance_state):
+        if not compliance_state or not isinstance(compliance_state, str):
+            return 'NOT_AVAILABLE'
+        state_upper = compliance_state.upper()
+        if state_upper in ['FAILED', 'NONCOMPLIANT', 'NON_COMPLIANT', 'UNHEALTHY']:
+            return 'FAILED'
+        elif state_upper in ['PASSED', 'COMPLIANT', 'HEALTHY']:
+            return 'PASSED'
+        elif state_upper in ['NOTAPPLICABLE', 'NOT_APPLICABLE', 'EXEMPT']:
+            return 'NOT_AVAILABLE'
+        else:
+            return 'NOT_AVAILABLE'
+  
+  asff_record_state: |
+    def asff_record_state(compliance_state):
+        if not compliance_state or not isinstance(compliance_state, str):
+            return 'ACTIVE'
+        state_upper = compliance_state.upper()
+        if state_upper in ['PASSED', 'COMPLIANT', 'HEALTHY']:
+            return 'ARCHIVED'
+        else:
+            return 'ACTIVE'
+  
+  normalize_timestamp: |
+    def normalize_timestamp(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        try:
+            if timestamp_str.endswith('Z'):
+                return timestamp_str
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                return dt.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+            else:
+                return timestamp_str + 'Z'
+        except Exception:
+            return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+  
+  asff_severity_label: |
+    def asff_severity_label(severity):
+        if not severity or not isinstance(severity, str):
+            return 'INFORMATIONAL'
+        severity_upper = severity.upper()
+        severity_map = {
+            'CRITICAL': 'CRITICAL',
+            'HIGH': 'HIGH',
+            'MEDIUM': 'MEDIUM',
+            'LOW': 'LOW'
+        }
+        return severity_map.get(severity_upper, 'INFORMATIONAL')
+  
+  asff_severity_normalized: |
+    def asff_severity_normalized(severity):
+        if not severity or not isinstance(severity, str):
+            return 0
+        severity_upper = severity.upper()
+        severity_map = {
+            'CRITICAL': 90,
+            'HIGH': 70,
+            'MEDIUM': 40,
+            'LOW': 10
+        }
+        return severity_map.get(severity_upper, 0)
+  
+  is_valid: |
+    def is_valid(value):
+        if not value or value == '' or value is None:
+            return False
+        return True
+  
+  default_if_invalid: |
+    def default_if_invalid(value, default=''):
+        if not value or value == '' or value is None:
+            return default
+        return value
+  
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        try:
+            return json.dumps(text)[1:-1]
+        except Exception:
+            return str(text).replace('"', '\\"').replace('\n', ' ')
+  
+  truncate: |
+    def truncate(text, max_length=1024):
+        if not text or not isinstance(text, str):
+            return ''
+        if len(text) <= max_length:
+            return text
+        return text[:max_length-3] + '...'
+  
+  lower: |
+    def lower(text):
+        if not text:
+            return ''
+        return str(text).lower()
+  
+  replace: |
+    def replace(text, old, new):
+        if not text:
+            return ''
+        return str(text).replace(old, new)
+  
+  generate_uuid: |
+    def generate_uuid():
+        import uuid
+        return str(uuid.uuid4())

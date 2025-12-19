@@ -1,0 +1,220 @@
+name: "azure_advisor_recommendation_to_ocsf_compliance_finding"
+input_schema: "azure_advisor_recommendation"
+output_schema: "ocsf_compliance_finding_v110"
+
+# JSONPath extractors for Azure Advisor Recommendation events
+extractors:
+  # Core timestamps
+  time: "$.event_data.time"
+  
+  # Recommendation details
+  operation_name: "$.event_data.operationName"
+  category: "$.event_data.category"
+  recommendation_name: "$.event_data.properties.recommendationName"
+  recommendation_category: "$.event_data.properties.recommendationCategory"
+  recommendation_impact: "$.event_data.properties.recommendationImpact"
+  recommendation_type: "$.event_data.properties.recommendationType"
+  recommendation_resource_link: "$.event_data.properties.recommendationResourceLink"
+  
+  # Result information
+  result_type: "$.event_data.resultType"
+  level: "$.event_data.level"
+  
+  # Resource information
+  resource_id: "$.event_data.resourceId"
+  subscription_id: "$.event_data.subscriptionId"
+  
+  # Caller information
+  caller_ip_address: "$.event_data.callerIpAddress"
+  
+  # Identity
+  principal_id: "$.event_data.identity.authorization.evidence.principalId"
+  user_name: "$.event_data.identity.claims.name"
+  user_upn: '$.event_data.identity.claims["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn"]'
+  user_object_id: '$.event_data.identity.claims["http://schemas.microsoft.com/identity/claims/objectidentifier"]'
+  
+  # Tenant and correlation
+  tenant_id: "$.event_data.tenantId"
+  correlation_id: "$.event_data.correlationId"
+
+# OCSF v1.1.0 Compliance Finding template (class_uid: 2001)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 2001,
+    "class_name": "Compliance Finding",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "activity_id": {% if extractors.result_type == 'Active' %}1{% elif extractors.result_type == 'Resolved' %}2{% else %}99{% endif %},
+    "activity_name": "{% if extractors.result_type == 'Active' %}Create{% elif extractors.result_type == 'Resolved' %}Update{% else %}Other{% endif %}",
+    "type_uid": {{ 200100 + (1 if extractors.result_type == 'Active' else 2 if extractors.result_type == 'Resolved' else 99) }},
+    "type_name": "Compliance Finding: {% if extractors.result_type == 'Active' %}Create{% elif extractors.result_type == 'Resolved' %}Update{% else %}Other{% endif %}",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": {% if extractors.recommendation_impact == 'High' %}4{% elif extractors.recommendation_impact == 'Medium' %}3{% elif extractors.recommendation_impact == 'Low' %}2{% else %}1{% endif %},
+    "severity": "{% if extractors.recommendation_impact == 'High' %}High{% elif extractors.recommendation_impact == 'Medium' %}Medium{% elif extractors.recommendation_impact == 'Low' %}Low{% else %}Informational{% endif %}",
+    "status": "{% if extractors.result_type == 'Active' %}New{% elif extractors.result_type == 'Resolved' %}Resolved{% else %}Other{% endif %}",
+    "status_id": {% if extractors.result_type == 'Active' %}1{% elif extractors.result_type == 'Resolved' %}2{% else %}99{% endif %},
+    "status_code": "{{ extractors.result_type | default('') }}",
+    "status_detail": "{{ extractors.result_type | default('') }}: {{ extractors.recommendation_impact | default('') }} impact {{ extractors.recommendation_category | default('Security') }} recommendation",
+    "message": "Azure Advisor {{ extractors.recommendation_category | default('Security') }} Recommendation: {{ extractors.recommendation_name | default('Configuration best practice') | json_escape }}",
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Azure Advisor",
+        "vendor_name": "Microsoft",
+        "feature": {
+          "name": "{{ extractors.recommendation_category | default('Security') }} Recommendations"
+        }
+      },
+      "profiles": ["cloud", "datetime"],
+      "uid": "{{ extractors.correlation_id | default(extractors.recommendation_type) }}",
+      "correlation_uid": "{{ extractors.correlation_id }}",
+      "original_time": "{{ extractors.time }}"
+    },
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.subscription_id | default(extractors.resource_id | extract_subscription) }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      },
+      "region": "{{ extractors.resource_id | extract_region | default('unknown') }}"
+    },
+    "finding_info": {
+      "uid": "{{ extractors.recommendation_type | default(extractors.correlation_id) }}",
+      "title": "{{ extractors.recommendation_name | default('Azure Advisor Recommendation') | json_escape }}",
+      "desc": "{{ extractors.recommendation_name | default('Azure Advisor security recommendation for configuration best practices') | json_escape }}",
+      "created_time": {{ extractors.time | to_unix_timestamp_ms }},
+      "modified_time": {{ extractors.time | to_unix_timestamp_ms }},
+      "types": ["Azure Advisor", "{{ extractors.recommendation_category | default('Security') }} Recommendation"],
+      "src_url": "{{ extractors.recommendation_resource_link | default('') }}"
+    },
+    "compliance": {
+      "requirements": ["{{ extractors.recommendation_name | default('Azure best practice') | json_escape }}"],
+      "status": "{% if extractors.result_type == 'Active' %}Fail{% elif extractors.result_type == 'Resolved' %}Pass{% else %}Other{% endif %}",
+      "status_detail": "{{ extractors.recommendation_category | default('Security') }} - {{ extractors.recommendation_impact | default('Unknown') }} Impact"
+    },
+    "resources": {
+      "uid": "{{ extractors.resource_id | default('') }}",
+      "name": "{{ extractors.resource_id | extract_resource_name }}",
+      "type": "{{ extractors.resource_id | extract_resource_type }}",
+      "cloud_partition": "azure-commercial"
+    },
+    "actor": {
+      "user": {
+        "uid": "{{ extractors.principal_id | default(extractors.user_object_id) | format_uid }}",
+        "name": "{{ extractors.user_name | default('Azure Advisor Service') | json_escape }}",
+        "email_addr": "{{ extractors.user_upn | default('') }}",
+        "type": "System",
+        "type_id": 3
+      },
+      "idp": {
+        "uid": "{{ extractors.tenant_id }}"
+      }
+    },
+    "src_endpoint": {
+      {% if extractors.caller_ip_address | extract_ip | is_valid %}"ip": "{{ extractors.caller_ip_address | extract_ip }}"{% else %}"ip": "0.0.0.0"{% endif %}
+    },
+    "unmapped": {
+      "recommendation_type_guid": "{{ extractors.recommendation_type | default('') }}",
+      "recommendation_category": "{{ extractors.recommendation_category | default('') }}",
+      "recommendation_impact": "{{ extractors.recommendation_impact | default('') }}",
+      "operation_name": "{{ extractors.operation_name | default('') }}",
+      "level": "{{ extractors.level | default('') }}"
+    }
+  }
+
+# Custom filters for Azure Advisor recommendation transformation
+filters:
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped
+  
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  extract_subscription: |
+    def extract_subscription(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'unknown'
+        parts = resource_id.upper().split('/')
+        for i, part in enumerate(parts):
+            if part == 'SUBSCRIPTIONS' and i + 1 < len(parts):
+                return parts[i + 1]
+        return 'unknown'
+  
+  extract_region: |
+    def extract_region(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'unknown'
+        parts = resource_id.lower().split('/')
+        for i, part in enumerate(parts):
+            if part == 'locations' and i + 1 < len(parts):
+                return parts[i + 1]
+        return 'unknown'
+  
+  extract_resource_name: |
+    def extract_resource_name(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'Unknown Resource'
+        parts = resource_id.split('/')
+        if parts:
+            return parts[-1]
+        return 'Unknown Resource'
+  
+  extract_resource_type: |
+    def extract_resource_type(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'Azure Resource'
+        parts = resource_id.upper().split('/')
+        for i, part in enumerate(parts):
+            if part == 'PROVIDERS' and i + 1 < len(parts):
+                provider = parts[i + 1]
+                if i + 2 < len(parts):
+                    return provider + '/' + parts[i + 2]
+                return provider
+        return 'Azure Resource'
+  
+  extract_ip: |
+    def extract_ip(ip_string):
+        if not ip_string or not isinstance(ip_string, str):
+            return ''
+        ip_string = ip_string.strip()
+        if ':' in ip_string and not ip_string.startswith('['):
+            parts = ip_string.rsplit(':', 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                return parts[0]
+        return ip_string
+  
+  is_valid: |
+    def is_valid(ip_string):
+        if not ip_string or not isinstance(ip_string, str):
+            return False
+        ip_string = ip_string.strip()
+        if not ip_string or ip_string == '':
+            return False
+        return True
+  
+  format_uid: |
+    def format_uid(uid):
+        if not uid:
+            return 'unknown'
+        uid_str = str(uid).replace('-', '')
+        return uid_str

@@ -1,0 +1,333 @@
+name: "gcp_api_activity_to_ocsf_api_activity"
+input_schema: "gcp_cloud_audit_logs"
+output_schema: "ocsf_api_activity_v110"
+
+# JSONPath extractors for GCP Cloud Audit Logs
+extractors:
+  # Core timestamps
+  timestamp: "$.event_data.timestamp"
+  receive_timestamp: "$.event_data.receiveTimestamp"
+  
+  # API operation details
+  method_name: "$.event_data.protoPayload.methodName"
+  service_name: "$.event_data.protoPayload.serviceName"
+  resource_name: "$.event_data.protoPayload.resourceName"
+  
+  # Authentication information
+  principal_email: "$.event_data.protoPayload.authenticationInfo.principalEmail"
+  principal_subject: "$.event_data.protoPayload.authenticationInfo.principalSubject"
+  
+  # Request metadata
+  caller_ip: "$.event_data.protoPayload.requestMetadata.callerIp"
+  user_agent: "$.event_data.protoPayload.requestMetadata.callerSuppliedUserAgent"
+  
+  # Status and response
+  status_code: "$.event_data.protoPayload.status.code"
+  status_message: "$.event_data.protoPayload.status.message"
+  severity: "$.event_data.severity"
+  
+  # Resource information
+  resource_type: "$.event_data.resource.type"
+  project_id: "$.event_data.resource.labels.project_id"
+  
+  # Authorization information
+  authorization_info: "$.event_data.protoPayload.authorizationInfo"
+  
+  # Request and response
+  request: "$.event_data.protoPayload.request"
+  response: "$.event_data.protoPayload.response"
+  
+  # Log metadata
+  log_name: "$.event_data.logName"
+  insert_id: "$.event_data.insertId"
+  
+  # Location
+  resource_location: "$.event_data.protoPayload.resourceLocation.currentLocations"
+  
+  # Processing metadata
+  processed_timestamp: "$.processing_metadata.processed_timestamp"
+  project_id_processing: "$.processing_metadata.project_id"
+
+# OCSF v1.1.0 API Activity template (class_uid: 6003)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 6003,
+    "class_name": "API Activity",
+    "category_uid": 6,
+    "category_name": "Application Activity",
+    "activity_id": {{ extractors.method_name | derive_activity_id }},
+    "activity_name": "{{ extractors.method_name | derive_activity_name }}",
+    "type_uid": {{ 600300 + (extractors.method_name | derive_activity_id) }},
+    "type_name": "API Activity: {{ extractors.method_name | derive_activity_name }}",
+    "time": {{ extractors.timestamp | to_unix_timestamp_ms }},
+    "severity_id": {{ extractors.severity | map_severity_id }},
+    "severity": "{{ extractors.severity | map_severity_name }}",
+    "status": "{{ extractors.status_code | derive_status }}",
+    "status_id": {{ extractors.status_code | derive_status_id }},
+    "status_code": "{{ extractors.status_code | default('0') }}",
+    "status_detail": "{{ extractors.status_message | default('') | json_escape }}",
+    "message": "GCP API Activity: {{ extractors.method_name | default('Unknown Operation') }} on {{ extractors.service_name | default('Unknown Service') }}",
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Google Cloud Audit Logs",
+        "vendor_name": "Google Cloud",
+        "feature": {
+          "name": "Cloud Audit Logs"
+        }
+      },
+      "profiles": ["cloud", "datetime"],
+      "uid": "{{ extractors.insert_id }}",
+      "original_time": "{{ extractors.timestamp }}"
+    },
+    "cloud": {
+      "provider": "GCP",
+      "account": {
+        "uid": "{{ extractors.project_id | default(extractors.project_id_processing) }}",
+        "type": "GCP Project",
+        "type_id": 10
+      },
+      "region": "{{ extractors.resource_location | extract_region }}"
+    },
+    "api": {
+      "operation": "{{ extractors.method_name | default('Unknown') }}",
+      "service": {
+        "name": "{{ extractors.service_name | default('Unknown Service') }}"
+      },
+      "request": {
+        "uid": "{{ extractors.insert_id }}"
+      },
+      "response": {
+        "code": {{ extractors.status_code | status_code_to_int }},
+        "message": "{{ extractors.status_message | default('') | json_escape }}"
+      }
+    },
+    "actor": {
+      "user": {
+        "uid": "{{ extractors.principal_email | format_uid }}",
+        "name": "{{ extractors.principal_email | default('Unknown User') | json_escape }}",
+        "email_addr": "{{ extractors.principal_email | default('') }}",
+        "type": "{{ extractors.principal_subject | extract_user_type }}",
+        "type_id": {{ extractors.principal_subject | extract_user_type_id }}
+      },
+      "idp": {
+        "name": "Google Cloud IAM"
+      }{% if extractors.authorization_info %},
+      "authorizations": {{ extractors.authorization_info | format_authorizations }}{% endif %}
+    },
+    "src_endpoint": {
+      {% if extractors.caller_ip | is_valid %}"ip": "{{ extractors.caller_ip }}"{% else %}"ip": "0.0.0.0"{% endif %}{% if extractors.user_agent %},
+      "user_agent": "{{ extractors.user_agent | json_escape }}"{% endif %}
+    },
+    "resources": {
+      "uid": "{{ extractors.resource_name | default('') }}",
+      "type": "{{ extractors.resource_type | default('GCP Resource') }}",
+      "cloud_partition": "gcp-global"
+    },
+    "unmapped": {
+      "log_name": "{{ extractors.log_name | default('') }}",
+      "severity": "{{ extractors.severity | default('') }}"
+    }
+  }
+
+# Custom filters for GCP API activity transformation
+filters:
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped
+  
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  map_severity_id: |
+    def map_severity_id(severity):
+        if not severity:
+            return 1
+        severity_map = {
+            'DEFAULT': 1,
+            'DEBUG': 1,
+            'INFO': 1,
+            'NOTICE': 2,
+            'WARNING': 3,
+            'ERROR': 4,
+            'CRITICAL': 5,
+            'ALERT': 5,
+            'EMERGENCY': 6
+        }
+        return severity_map.get(str(severity).upper(), 1)
+  
+  map_severity_name: |
+    def map_severity_name(severity):
+        if not severity:
+            return 'Informational'
+        severity_map = {
+            'DEFAULT': 'Informational',
+            'DEBUG': 'Informational',
+            'INFO': 'Informational',
+            'NOTICE': 'Low',
+            'WARNING': 'Medium',
+            'ERROR': 'High',
+            'CRITICAL': 'Critical',
+            'ALERT': 'Critical',
+            'EMERGENCY': 'Fatal'
+        }
+        return severity_map.get(str(severity).upper(), 'Informational')
+  
+  derive_status: |
+    def derive_status(status_code):
+        if not status_code:
+            return 'Unknown'
+        try:
+            code = int(status_code)
+            if code == 0:
+                return 'Success'
+            elif code in [1, 2, 13]:
+                return 'Failure'
+            elif code in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16]:
+                return 'Failure'
+            else:
+                return 'Unknown'
+        except:
+            return 'Unknown'
+  
+  derive_status_id: |
+    def derive_status_id(status_code):
+        if not status_code:
+            return 0
+        try:
+            code = int(status_code)
+            if code == 0:
+                return 1
+            elif code in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]:
+                return 2
+            else:
+                return 0
+        except:
+            return 0
+  
+  status_code_to_int: |
+    def status_code_to_int(status_code):
+        if not status_code:
+            return 0
+        try:
+            return int(status_code)
+        except:
+            return 0
+  
+  extract_region: |
+    def extract_region(locations):
+        if not locations:
+            return 'global'
+        if isinstance(locations, list) and len(locations) > 0:
+            return locations[0]
+        return 'global'
+  
+  extract_user_type: |
+    def extract_user_type(principal_subject):
+        if not principal_subject:
+            return 'Unknown'
+        if 'serviceAccount' in principal_subject:
+            return 'Service Account'
+        elif 'user' in principal_subject:
+            return 'User'
+        else:
+            return 'Unknown'
+  
+  extract_user_type_id: |
+    def extract_user_type_id(principal_subject):
+        if not principal_subject:
+            return 0
+        if 'serviceAccount' in principal_subject:
+            return 3
+        elif 'user' in principal_subject:
+            return 1
+        else:
+            return 0
+  
+  format_uid: |
+    def format_uid(email):
+        if not email:
+            return 'unknown'
+        return str(email).replace('@', '_at_').replace('.', '_')
+  
+  is_valid: |
+    def is_valid(ip_string):
+        if not ip_string or not isinstance(ip_string, str):
+            return False
+        ip_string = ip_string.strip()
+        if not ip_string or ip_string == '':
+            return False
+        return True
+  
+  derive_activity_id: |
+    def derive_activity_id(method_name):
+        if not method_name or not isinstance(method_name, str):
+            return 99
+        method_upper = method_name.upper()
+        if 'INSERT' in method_upper or 'CREATE' in method_upper or 'ADD' in method_upper:
+            return 1
+        elif 'GET' in method_upper or 'LIST' in method_upper or 'DESCRIBE' in method_upper:
+            return 2
+        elif 'UPDATE' in method_upper or 'PATCH' in method_upper or 'MODIFY' in method_upper or 'SET' in method_upper:
+            return 3
+        elif 'DELETE' in method_upper or 'REMOVE' in method_upper:
+            return 4
+        else:
+            return 99
+  
+  derive_activity_name: |
+    def derive_activity_name(method_name):
+        if not method_name or not isinstance(method_name, str):
+            return 'Other'
+        method_upper = method_name.upper()
+        if 'INSERT' in method_upper or 'CREATE' in method_upper or 'ADD' in method_upper:
+            return 'Create'
+        elif 'GET' in method_upper or 'LIST' in method_upper or 'DESCRIBE' in method_upper:
+            return 'Read'
+        elif 'UPDATE' in method_upper or 'PATCH' in method_upper or 'MODIFY' in method_upper or 'SET' in method_upper:
+            return 'Update'
+        elif 'DELETE' in method_upper or 'REMOVE' in method_upper:
+            return 'Delete'
+        else:
+            return 'Other'
+  
+  format_authorizations: |
+    def format_authorizations(auth_info):
+        import json
+        if not auth_info:
+            return '[]'
+        if isinstance(auth_info, str):
+            try:
+                auth_info = json.loads(auth_info)
+            except:
+                return '[]'
+        if not isinstance(auth_info, list):
+            return '[]'
+        result = []
+        for auth in auth_info:
+            if isinstance(auth, dict):
+                result.append({
+                    'decision': 'Allow' if auth.get('granted') else 'Deny',
+                    'policy': {
+                        'name': auth.get('permission', 'Unknown Permission')
+                    }
+                })
+        return json.dumps(result)

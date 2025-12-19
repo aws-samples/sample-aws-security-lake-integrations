@@ -223,49 +223,30 @@ template: |
         "path": "{{ extractors.processes[0].binary | default('') }}"
       }
     },{% endif %}{% if extractors.resource_name %}
-    "resources": [
-      {
-        "uid": "{{ extractors.resource_name }}",
-        "name": "{{ extractors.resource_display_name | default(extractors.resource_name | extract_resource_name) }}",
-        "type": "{{ extractors.resource_type | default('') }}",
-        "cloud_partition": "gcp-public",
-        "region": "{{ extractors.resource_name | extract_gcp_region }}"{% if extractors.canonical_name %},
-        "data": {
-          "canonical_name": "{{ extractors.canonical_name }}"{% if extractors.kubernetes %},
-          "kubernetes": {{ extractors.kubernetes | to_json }}{% endif %}
-        }{% endif %}{% if extractors.project_id %},
-        "owner": {
-          "account": {
-            "uid": "{{ extractors.project_id | extract_gcp_project_id }}",
-            "name": "{{ extractors.project_display_name | default('') }}"
-          }
-        }{% endif %},
-        "role_id": 3,
-        "role": "Affected"{% if extractors.folders %},
-        "labels": [
-          {% for folder in extractors.folders %}
-          "folder:{{ folder.resourceFolder }}"{{ ',' if not loop.last else '' }}
-          {% endfor %}
-        ]{% endif %}
-      }{% if extractors.connections %},
-      {% for connection in extractors.connections %}
-      {
-        "uid": "{{ connection.sourceIp | default('') }}_{{ connection.destinationIp | default('') }}",
-        "name": "{{ connection.protocol | default('') }} Connection",
-        "type": "Network Connection",
-        "data": {
-          "source_ip": "{{ connection.sourceIp | default('') }}",
-          "source_port": {{ connection.sourcePort | default(0) }},
-          "destination_ip": "{{ connection.destinationIp | default('') }}",
-          "destination_port": {{ connection.destinationPort | default(0) }},
-          "protocol": "{{ connection.protocol | default('') }}"
-        },
-        "role_id": 4,
-        "role": "Related"
-      }{{ ',' if not loop.last else '' }}
-      {% endfor %}
-      {% endif %}
-    ],{% endif %}{% if extractors.connections %}
+    "resources": {
+      "uid": "{{ extractors.resource_name }}",
+      "name": "{{ extractors.resource_display_name | default(extractors.resource_name | extract_resource_name) }}",
+      "type": "{{ extractors.resource_type | default('') }}",
+      "cloud_partition": "gcp-public",
+      "region": "{{ extractors.resource_name | extract_gcp_region }}"{% if extractors.canonical_name %},
+      "data": {
+        "canonical_name": "{{ extractors.canonical_name }}"{% if extractors.kubernetes %},
+        "kubernetes": {{ extractors.kubernetes | to_json }}{% endif %}
+      }{% endif %}{% if extractors.project_id %},
+      "owner": {
+        "account": {
+          "uid": "{{ extractors.project_id | extract_gcp_project_id }}",
+          "name": "{{ extractors.project_display_name | default('') }}"
+        }
+      }{% endif %},
+      "role_id": 3,
+      "role": "Affected"{% if extractors.folders %},
+      "labels": [
+        {% for folder in extractors.folders %}
+        "folder:{{ folder.resourceFolder }}"{{ ',' if not loop.last else '' }}
+        {% endfor %}
+      ]{% endif %}
+    },{% endif %}{% if extractors.connections %}
     "network_endpoint": {
       {% set connection_ip = extractors.connections[0].sourceIp | default(extractors.connections[0].destinationIp) | extract_ip %}{% if connection_ip | is_valid %}"ip": "{{ connection_ip }}",
       {% endif %}"port": {{ (extractors.connections[0].sourceIp | default(extractors.connections[0].destinationIp) | extract_port) | default(extractors.connections[0].sourcePort) | default(extractors.connections[0].destinationPort) | default(0) | int }},
@@ -287,7 +268,7 @@ template: |
     "metadata": {
       "version": "1.1.0",
       "product": {
-        "name": "Security Command Center",
+        "name": "Google Security Command Center",
         "vendor_name": "Google Cloud",
         "version": "1.0",
         "feature": {

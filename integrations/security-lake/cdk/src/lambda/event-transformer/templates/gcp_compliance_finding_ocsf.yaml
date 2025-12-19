@@ -125,13 +125,14 @@ template: |
         {% endfor %}
       ],
       "requirements": [
-        {% for compliance in extractors.compliances %}
-        {% if compliance.ids %}
-          {% for control_id in compliance.ids %}
-        "{{ control_id }}"{{ ',' if not loop.last else '' }}
-          {% endfor %}
-        {% endif %}
-        {% endfor %}
+        {%- set ns = namespace(first=true) -%}
+        {%- for c in extractors.compliances -%}
+          {%- if c.ids -%}
+            {%- for id in c.ids -%}
+        {{ '' if ns.first else ', ' }}"{{ id }}"{%- set ns.first = false -%}
+            {%- endfor -%}
+          {%- endif -%}
+        {%- endfor -%}
       ],
       "status": "{{ extractors.state | map_compliance_status }}",
       "status_detail": "{{ extractors.description | default('') | json_escape }}"
@@ -172,12 +173,11 @@ template: |
         }
       }{{ ',' if not loop.last else '' }}
       {% endfor %}
-    ],{% endif %}{% if extractors.resource_name %}
-    "resources": [
-      {
-        "uid": "{{ extractors.resource_name }}",
+    ],{% endif %}
+    "resources": {
+        "uid": "{{ extractors.resource_name | default('None') }}",
         "name": "{{ extractors.resource_display_name | default(extractors.resource_name | extract_resource_name) }}",
-        "type": "{{ extractors.resource_type | default('') }}",
+        "type": "{{ extractors.resource_type | default('None') }}",
         "cloud_partition": "gcp-public",
         "region": "{{ extractors.resource_name | extract_gcp_region }}"{% if extractors.canonical_name %},
         "data": {
@@ -196,25 +196,7 @@ template: |
           "folder:{{ folder.resourceFolder }}"{{ ',' if not loop.last else '' }}
           {% endfor %}
         ]{% endif %}
-      }{% if extractors.connections %},
-      {% for connection in extractors.connections %}
-      {
-        "uid": "{{ connection.sourceIp | default(connection.destinationIp) | default('') }}",
-        "name": "{{ connection.protocol | default('') }} Connection",
-        "type": "Network Connection",
-        "data": {
-          "source_ip": "{{ connection.sourceIp | default('') }}",
-          "source_port": {{ connection.sourcePort | default(0) }},
-          "destination_ip": "{{ connection.destinationIp | default('') }}",
-          "destination_port": {{ connection.destinationPort | default(0) }},
-          "protocol": "{{ connection.protocol | default('') }}"
-        },
-        "role_id": 4,
-        "role": "Related"
-      }{{ ',' if not loop.last else '' }}
-      {% endfor %}
-      {% endif %}
-    ],{% endif %}{% if extractors.recommendation or extractors.next_steps %}
+    },{% if extractors.recommendation or extractors.next_steps %}
     "remediation": {
       "desc": "{{ (extractors.recommendation | default('') ~ (' ' ~ extractors.next_steps if extractors.next_steps else '')) | json_escape }}",
       "references": [
@@ -226,7 +208,7 @@ template: |
     "metadata": {
       "version": "1.1.0",
       "product": {
-        "name": "Security Command Center",
+        "name": "Google Security Command Center",
         "vendor_name": "Google Cloud",
         "version": "1.0",
         "feature": {

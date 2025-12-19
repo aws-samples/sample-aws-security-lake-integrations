@@ -27,13 +27,13 @@ Integration modules are conditionally deployed based on configuration:
 - Event Hub Processor Lambda for Microsoft Defender alerts
 - DynamoDB checkpoint store for Event Hub consumer tracking
 - Support for security assessments, alerts, secure scores, and VNet flow logs
-- Full OCSF v1.7.0 transformation with ASFF and CloudTrail format support
+- Full OCSF v1.1.0 transformation with ASFF and CloudTrail format support
 
 **Google SCC Integration Module** (Production-Ready)
 - Pub/Sub Poller Lambda for Security Command Center findings
 - Native Pub/Sub subscription tracking (no external checkpoint store needed)
 - Support for vulnerability findings, compliance findings, and threat detection
-- Rich OCSF v1.7.0 metadata including CVE details and compliance framework mappings
+- Rich OCSF v1.1.0 metadata including CVE details and compliance framework mappings
 
 **Custom Integration Modules**
 - Additional modules can be added by implementing the IIntegrationModule interface
@@ -191,10 +191,10 @@ Each integration has comprehensive documentation for setup and troubleshooting:
 - [Google SCC README](integrations/google_security_command_center/README.md) - GCP integration details
 - [GCP Terraform Setup](integrations/google_security_command_center/terraform/README.md) - GCP infrastructure
 
-### OpenSearch Pipeline
-- [OpenSearch Configuration](integrations/aws/opensearch-pipeline/README.md) - OCSF visualization dashboards
-- [OpenSearch Setup Guide](integrations/aws/opensearch-pipeline/SETUP_GUIDE.md) - Complete deployment guide
-- [OpenSearch Quick Start](integrations/aws/opensearch-pipeline/QUICKSTART.md) - 30-minute deployment
+### OpenSearch Serverless Security Analytics
+- [OpenSearch Serverless README](integrations/aws/opensearch-serverless/README.md) - Complete stack documentation
+- [Quick Start Guide](integrations/aws/opensearch-serverless/quickstart.md) - Rapid deployment walkthrough
+- [Configuration Example](integrations/aws/opensearch-serverless/config.yaml.example) - Full configuration reference
 
 ## Limitations
 
@@ -258,8 +258,10 @@ security-lake-integrations/
 │   ├── google_security_command_center/       # GCP-specific infrastructure
 │   │   ├── terraform/                        # GCP Pub/Sub and SCC config
 │   │   └── scripts/                          # GCP configuration automation
-│   └── aws/opensearch-pipeline/              # OpenSearch visualization
-│       └── saved_objects/                    # Pre-built dashboards
+│   └── aws/opensearch-serverless/            # OpenSearch Serverless CDK stack
+│       ├── assets/                           # Dashboard NDJSON files
+│       ├── lib/                              # CDK constructs
+│       └── src/lambda/                       # Lambda functions
 └── docs/                                     # Additional documentation
 ```
 

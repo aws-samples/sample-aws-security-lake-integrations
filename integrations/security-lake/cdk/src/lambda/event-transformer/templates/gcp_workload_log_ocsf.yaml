@@ -1,0 +1,274 @@
+# 2025 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
+name: "gcp_workload_log_to_ocsf_process_activity"
+input_schema: "gcp_workload_logs"
+output_schema: "ocsf_process_activity_v110"
+
+# JSONPath extractors for GCP Workload Logs (from Pub/Sub messages)
+# Mapped to match Azure Syslog equivalent fields
+extractors:
+  # Core identification - mapped to Azure equivalents
+  # Azure: Computer -> GCP: instance_name
+  computer: "$.event_data.labels.instance_name"
+  # Azure: EventTime/TimeGenerated -> GCP: timestamp
+  event_time: "$.event_data.timestamp"
+  time_generated: "$.event_data.timestamp"
+  # Azure: Facility -> GCP: extract from logName
+  facility: "$.event_data.logName"
+  # Azure: HostIP -> GCP: no direct equivalent
+  host_ip: "$.event_data.labels.instance_name"
+  # Azure: HostName -> GCP: instance_name
+  host_name: "$.event_data.labels.instance_name"
+  
+  # Process information - mapped to Azure equivalents
+  # Azure: ProcessID -> GCP: no PID available (will default to 0)
+  process_id: "$.event_data.jsonPayload.pid"
+  # Azure: ProcessName -> GCP: progName
+  process_name: "$.event_data.jsonPayload.progName"
+  # Azure: SyslogMessage -> GCP: message
+  syslog_message: "$.event_data.jsonPayload.message"
+  # Azure: SeverityLevel -> GCP: severity
+  severity_level: "$.event_data.severity"
+  # Azure: SourceSystem -> GCP: resource.type
+  source_system: "$.event_data.resource.type"
+  
+  # Azure metadata equivalents
+  # Azure: _ResourceId -> GCP: instance_id
+  resource_id: "$.event_data.resource.labels.instance_id"
+  # Azure: _SubscriptionId -> GCP: project_id
+  subscription_id: "$.event_data.resource.labels.project_id"
+  # Azure: TenantId -> GCP: no equivalent (use project_id)
+  tenant_id: "$.event_data.resource.labels.project_id"
+  # Azure: _ItemId -> GCP: insertId
+  item_id: "$.event_data.insertId"
+  
+  # Processing metadata
+  # Azure: processed_timestamp -> GCP: receiveTimestamp
+  processed_timestamp: "$.event_data.receiveTimestamp"
+  # Azure: processor_version -> GCP: processing_metadata.source
+  processor_version: "$.processing_metadata.source"
+  # Azure: eventhub_name -> GCP: no equivalent (use empty)
+  eventhub_name: "$.processing_metadata.subscription"
+
+# OCSF v1.1.0 Process Activity template (class_uid: 1007)
+# Structure matches azure_syslog_process_activity_ocsf.yaml exactly
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 1007,
+    "class_name": "Process Activity",
+    "category_uid": 1,
+    "category_name": "System Activity",
+    "activity_id": 99,
+    "activity_name": "Other",
+    "type_uid": 100799,
+    "type_name": "Process Activity: Other",
+    "time": {{ extractors.time_generated | to_unix_timestamp_ms }},
+    "severity_id": {{ extractors.severity_level | map_syslog_severity_id }},
+    "severity": "{{ extractors.severity_level | map_syslog_severity }}",
+    "status": "Success",
+    "status_id": 1,
+    "message": "{{ extractors.syslog_message | truncate_message | json_escape }}",
+    "process": {
+      "name": "{{ extractors.process_name }}",
+      "pid": {{ extractors.process_id | default(0) | int }},
+      "cmd_line": "{{ extractors.syslog_message | extract_command_line | json_escape }}"
+    },
+    "actor": {
+      "process": {
+        "name": "{{ extractors.process_name }}",
+        "pid": {{ extractors.process_id | default(0) | int }}
+      }
+    },
+    "device": {
+      "name": "{{ extractors.computer }}",
+      "hostname": "{{ extractors.host_name }}",
+      "ip": "{{ extractors.host_ip }}",
+      "type": "{{ extractors.source_system }}",
+      "type_id": 99,
+      "os": {
+        "name": "{{ extractors.source_system }}",
+        "type": "{{ extractors.source_system }}",
+        "type_id": 100
+      },
+      "uid": "{{ extractors.resource_id }}"
+    },
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Google Cloud Logging",
+        "vendor_name": "Google Cloud",
+        "feature": {
+          "name": "{{ extractors.facility | extract_log_type }}"
+        }
+      },
+      "profiles": ["cloud", "host"],
+      "uid": "{{ extractors.item_id }}",
+      "logged_time": {{ extractors.time_generated | to_unix_timestamp_ms }},
+      "processed_time": {{ extractors.processed_timestamp | to_unix_timestamp_ms }}
+    },
+    "cloud": {
+      "provider": "GCP",
+      "account": {
+        "uid": "{{ extractors.subscription_id }}",
+        "type": "GCP Project",
+        "type_id": 10
+      }
+    },
+    "observables": [
+      {
+        "name": "facility",
+        "type": "Syslog Facility",
+        "type_id": 99,
+        "value": "{{ extractors.facility | extract_log_type }}"
+      }
+    ],
+    "unmapped": {
+      "tenant_id": "{{ extractors.tenant_id }}",
+      "eventhub_name": "{{ extractors.eventhub_name }}",
+      "processor_version": "{{ extractors.processor_version }}",
+      "facility": "{{ extractors.facility | extract_log_type }}",
+      "source_system": "{{ extractors.source_system }}"
+    }
+  }
+
+# Custom filters for GCP Workload Logs
+# Filter names match Azure syslog template for consistency
+filters:
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            # Handle ISO 8601 formats
+            if isinstance(timestamp_str, list):
+                timestamp_str = timestamp_str[0] if timestamp_str else None
+            if not timestamp_str:
+                return int(datetime.utcnow().timestamp() * 1000)
+            if isinstance(timestamp_str, str):
+                # Handle nanosecond precision timestamps from GCP
+                if '.' in timestamp_str:
+                    parts = timestamp_str.split('.')
+                    if len(parts) == 2:
+                        # Truncate nanoseconds to microseconds
+                        nano_part = parts[1].rstrip('Z').replace('+', '').split('+')[0]
+                        if len(nano_part) > 6:
+                            nano_part = nano_part[:6]
+                        timestamp_str = parts[0] + '.' + nano_part
+                        if 'Z' in parts[1]:
+                            timestamp_str += '+00:00'
+                if timestamp_str.endswith('Z'):
+                    dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                elif '+' in timestamp_str or timestamp_str.count('-') > 2:
+                    dt = datetime.fromisoformat(timestamp_str)
+                else:
+                    dt = datetime.fromisoformat(timestamp_str + '+00:00')
+                return int(dt.timestamp() * 1000)
+            return int(datetime.utcnow().timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  map_syslog_severity_id: |
+    def map_syslog_severity_id(severity):
+        if not severity:
+            return 1
+        # Map GCP severity levels to OCSF severity IDs
+        # GCP uses uppercase severity names
+        severity_map = {
+            'EMERGENCY': 6,      # Emergency -> Fatal
+            'ALERT': 5,          # Alert -> Critical
+            'CRITICAL': 5,       # Critical -> Critical
+            'ERROR': 4,          # Error -> High
+            'WARNING': 3,        # Warning -> Medium
+            'NOTICE': 2,         # Notice -> Low
+            'INFO': 1,           # Informational -> Informational
+            'DEBUG': 1,          # Debug -> Informational
+            'DEFAULT': 1,        # Default -> Informational
+            # Also support lowercase for compatibility
+            'emerg': 6,
+            'alert': 5,
+            'crit': 5,
+            'err': 4,
+            'error': 4,
+            'warning': 3,
+            'warn': 3,
+            'notice': 2,
+            'info': 1,
+            'debug': 1
+        }
+        severity_str = str(severity).upper() if severity else ''
+        return severity_map.get(severity_str, severity_map.get(str(severity).lower(), 1))
+  
+  map_syslog_severity: |
+    def map_syslog_severity(severity):
+        if not severity:
+            return 'Informational'
+        # Map GCP severity levels to OCSF severity strings
+        severity_map = {
+            'EMERGENCY': 'Fatal',
+            'ALERT': 'Critical',
+            'CRITICAL': 'Critical',
+            'ERROR': 'High',
+            'WARNING': 'Medium',
+            'NOTICE': 'Low',
+            'INFO': 'Informational',
+            'DEBUG': 'Informational',
+            'DEFAULT': 'Informational',
+            # Also support lowercase for compatibility
+            'emerg': 'Fatal',
+            'alert': 'Critical',
+            'crit': 'Critical',
+            'err': 'High',
+            'error': 'High',
+            'warning': 'Medium',
+            'warn': 'Medium',
+            'notice': 'Low',
+            'info': 'Informational',
+            'debug': 'Informational'
+        }
+        severity_str = str(severity).upper() if severity else ''
+        return severity_map.get(severity_str, severity_map.get(str(severity).lower(), 'Informational'))
+  
+  truncate_message: |
+    def truncate_message(message):
+        if not message or not isinstance(message, str):
+            return ''
+        # Truncate to 1000 characters for readability
+        return message[:1000] if len(message) > 1000 else message
+  
+  extract_command_line: |
+    def extract_command_line(message):
+        if not message or not isinstance(message, str):
+            return ''
+        # Try to extract command from GCP message format: command("...")
+        import re
+        match = re.search(r'command\(["\']([^"\']+)["\']\)', message)
+        if match:
+            return match.group(1)
+        # Extract first 200 chars as potential command line
+        return message[:200] if len(message) > 200 else message
+  
+  extract_log_type: |
+    def extract_log_type(log_name):
+        if not log_name or not isinstance(log_name, str):
+            return 'Unknown'
+        # Extract log type from GCP log name: projects/{project}/logs/{log_type}
+        parts = log_name.split('/logs/')
+        if len(parts) > 1:
+            return parts[1]
+        return log_name
+  
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        try:
+            escaped = json.dumps(text)[1:-1]
+            return escaped
+        except Exception:
+            return str(text).replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')

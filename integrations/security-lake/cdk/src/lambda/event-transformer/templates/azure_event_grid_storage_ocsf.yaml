@@ -1,0 +1,196 @@
+# 2025 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
+name: "azure_event_grid_storage_to_ocsf_datastore_activity"
+input_schema: "azure_event_grid_storage"
+output_schema: "ocsf_datastore_activity_v110"
+
+# JSONPath extractors for Azure Event Grid Storage Events
+extractors:
+  # Core fields
+  event_id: "$.event_data.id"
+  source: "$.event_data.source"
+  event_type: "$.event_data.eventType"
+  subject: "$.event_data.subject"
+  time: "$.event_data.time"
+  spec_version: "$.event_data.specversion"
+  
+  # Data fields
+  api_operation: "$.event_data.data.api"
+  client_request_id: "$.event_data.data.clientRequestId"
+  request_id: "$.event_data.data.requestId"
+  etag: "$.event_data.data.eTag"
+  content_type: "$.event_data.data.contentType"
+  content_length: "$.event_data.data.contentLength"
+  blob_type: "$.event_data.data.blobType"
+  url: "$.event_data.data.url"
+  sequencer: "$.event_data.data.sequencer"
+  
+  # Identity fields (may be present for storage account operations)
+  identity_type: "$.event_data.data.identity.type"
+  identity_user_id: "$.event_data.data.identity.principalId"
+  
+  # Storage info
+  storage_diagnostics: "$.event_data.data.storageDiagnostics"
+
+# OCSF v1.1.0 Datastore Activity template (class_uid: 6005)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 6005,
+    "class_name": "Datastore Activity",
+    "category_uid": 6,
+    "category_name": "Application Activity",
+    "activity_id": {{ extractors.event_type | map_event_grid_activity_id }},
+    "activity_name": "{{ extractors.event_type | map_event_grid_activity_name }}",
+    "type_uid": {{ 600500 + (extractors.event_type | map_event_grid_activity_id) }},
+    "type_name": "Datastore Activity: {{ extractors.event_type | map_event_grid_activity_name }}",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": 1,
+    "severity": "Informational",
+    "status": "Success",
+    "status_id": 1,
+    "status_code": "200",
+    "message": "Azure Storage {{ extractors.event_type | map_event_grid_activity_name }}: {{ extractors.subject }}",
+    "datastore": {
+      "name": "{{ extractors.source | extract_storage_account_name }}",
+      "type": "Azure Blob Storage",
+      "type_id": 9,
+      "uid": "{{ extractors.source }}"
+    },
+    "src_endpoint": {
+      "svc_name": "Azure Event Grid"
+    },
+    "dst_endpoint": {
+      "url": {
+        "hostname": "{{ extractors.source | extract_storage_hostname }}",
+        "url_string": "{{ extractors.url | default('') }}"
+      },
+      "svc_name": "Azure Blob Storage"
+    },
+    "actor": {
+      "idp": {
+        "name": "Azure Event Grid",
+        "uid": "{{ extractors.identity_type | default('EventGrid') }}"
+      },
+      "session": {
+        "uid": "{{ extractors.request_id | default('') }}"
+      }
+    },
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.source | extract_azure_subscription_from_source }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      }
+    },
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Azure Event Grid",
+        "vendor_name": "Microsoft",
+        "version": "{{ extractors.spec_version | default('1.0') }}",
+        "feature": {
+          "name": "Storage Events"
+        }
+      },
+      "uid": "{{ extractors.event_id }}",
+      "profiles": ["cloud"],
+      "event_code": "{{ extractors.event_type }}",
+      "correlation_uid": "{{ extractors.client_request_id | default('') }}",
+      "logged_time": {{ extractors.time | to_unix_timestamp_ms }}
+    },
+    "unmapped": {
+      "subject": "{{ extractors.subject | default('') }}",
+      "api_operation": "{{ extractors.api_operation | default('') }}",
+      "content_type": "{{ extractors.content_type | default('') }}",
+      "content_length": {{ extractors.content_length | default(0) | int }},
+      "blob_type": "{{ extractors.blob_type | default('') }}",
+      "etag": "{{ extractors.etag | default('') }}",
+      "sequencer": "{{ extractors.sequencer | default('') }}"
+    }
+  }
+
+# Custom filters for Azure Event Grid Storage Activity
+filters:
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  map_event_grid_activity_id: |
+    def map_event_grid_activity_id(event_type):
+        activity_map = {
+            'Microsoft.Storage.BlobCreated': 2,
+            'Microsoft.Storage.BlobDeleted': 3,
+            'Microsoft.Storage.BlobRenamed': 5,
+            'Microsoft.Storage.DirectoryCreated': 2,
+            'Microsoft.Storage.DirectoryDeleted': 3,
+            'Microsoft.Storage.DirectoryRenamed': 5
+        }
+        return activity_map.get(str(event_type), 99)
+  
+  map_event_grid_activity_name: |
+    def map_event_grid_activity_name(event_type):
+        activity_map = {
+            'Microsoft.Storage.BlobCreated': 'Write',
+            'Microsoft.Storage.BlobDeleted': 'Delete',
+            'Microsoft.Storage.BlobRenamed': 'Update',
+            'Microsoft.Storage.DirectoryCreated': 'Write',
+            'Microsoft.Storage.DirectoryDeleted': 'Delete',
+            'Microsoft.Storage.DirectoryRenamed': 'Update'
+        }
+        return activity_map.get(str(event_type), 'Other')
+  
+  extract_storage_account_name: |
+    def extract_storage_account_name(source):
+        if not source or not isinstance(source, str):
+            return 'unknown'
+        # Extract storage account from source like /subscriptions/.../storageAccounts/accountname
+        if 'storageAccounts/' in source:
+            parts = source.split('storageAccounts/')
+            if len(parts) > 1:
+                return parts[1].split('/')[0]
+        return source
+  
+  extract_storage_hostname: |
+    def extract_storage_hostname(source):
+        if not source or not isinstance(source, str):
+            return 'unknown.blob.core.windows.net'
+        # Extract storage account from source
+        if 'storageAccounts/' in source:
+            parts = source.split('storageAccounts/')
+            if len(parts) > 1:
+                account_name = parts[1].split('/')[0]
+                return f"{account_name}.blob.core.windows.net"
+        return 'unknown.blob.core.windows.net'
+  
+  extract_azure_subscription_from_source: |
+    def extract_azure_subscription_from_source(source):
+        if not source or not isinstance(source, str):
+            return 'unknown'
+        if '/subscriptions/' in source:
+            return source.split('/subscriptions/')[1].split('/')[0]
+        return 'unknown'
+  
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped

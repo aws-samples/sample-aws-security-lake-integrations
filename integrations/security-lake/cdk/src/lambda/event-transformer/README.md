@@ -55,6 +55,72 @@ The function requires:
 - **Channel**: CloudTrail Channel configured for the Event Data Store
 - **Permissions**: Lambda must have `cloudtrail-data:PutAuditEvents` permission
 
+## Lambda Layer Dependencies
+
+The Event Transformer requires the AWS SDK for pandas (formerly AWS Data Wrangler) Lambda Layer for Parquet file generation and Security Lake integration.
+
+### Layer Purpose
+
+The layer provides essential packages for OCSF event processing:
+- **awswrangler**: AWS SDK for pandas - handles Parquet file generation and S3 operations
+- **pandas**: DataFrame operations for structured OCSF event data
+- **pyarrow**: Low-level Parquet format support (awswrangler dependency)
+
+### Configuration
+
+Configure the layer ARN in your CDK config.yaml:
+
+```yaml
+coreProcessing:
+  eventTransformer:
+    lambdaLayerArn: arn:aws:lambda:REGION:336392948345:layer:AWSSDKPandas-Python313-Arm64:15
+```
+
+Replace `REGION` with your deployment region (e.g., us-east-1, us-west-2, ca-central-1).
+
+### Why Layer vs Bundling
+
+The Lambda Layer approach is used instead of bundling awswrangler in the deployment package because:
+
+1. **Package Size**: awswrangler with dependencies exceeds 100MB, approaching Lambda's 250MB uncompressed limit
+2. **Cold Start Performance**: Smaller deployment packages result in faster Lambda cold starts
+3. **Deployment Speed**: Reduces deployment time and CDK synth/deploy operations
+4. **AWS Integration**: Better integration with AWS service updates and patches
+5. **Reusability**: The layer can be shared across multiple Lambda functions
+
+### Version Compatibility
+
+**Required Specifications:**
+- Lambda Runtime: Python 3.13
+- Architecture: ARM64 (graviton2)
+- awswrangler: >=3.0.0
+- pandas: >=2.0.0
+- pyarrow: >=15.0.0,<21.0.0
+
+**Finding the Latest Layer:**
+- Public AWS Layers: https://github.com/aws/aws-sdk-pandas/releases
+- Check for Python 3.13 + ARM64 compatibility
+- Layer versions are region-specific
+
+### Layer Usage in Code
+
+The layer is imported and used in [`helpers/security_lake_client.py`](helpers/security_lake_client.py):
+
+```python
+import awswrangler as wr
+import pandas as pd
+
+# Write events to Parquet format
+wr.s3.to_parquet(
+    df=pd.DataFrame(events),
+    path=s3_path,
+    dataset=True,
+    mode='append'
+)
+```
+
+For detailed configuration options, see [CONFIG_SCHEMA.md](../../docs/CONFIG_SCHEMA.md#lambda-layer-configuration).
+
 ## Features
 
 ### Dual Processing Modes
@@ -81,7 +147,7 @@ The transformer supports three output formats, each optimized for different AWS 
 #### OCSF Format
 - **Target**: AWS Security Lake
 - **Use Case**: Security data lake with standardized schema
-- **Format**: OCSF v1.0.0 events in Parquet files
+- **Format**: OCSF v1.1.0 events in Parquet files
 - **Delivery**: Direct upload to Security Lake S3 bucket with partitioning
 - **Features**:
   - Template-driven transformation using YAML templates
@@ -1008,6 +1074,112 @@ aws logs filter-log-events \
 | **Partial Batch Failures** | Mixed success/failure in batch | Normal operation - failed items will retry |
 | **DLQ Processing Issues** | Queue permissions or network | Verify SQS permissions and connectivity |
 
+## Troubleshooting
+
+### Lambda Layer Issues
+
+#### ModuleNotFoundError: No module named 'awswrangler'
+
+**Symptoms:**
+- Lambda function fails on import
+- Error appears in CloudWatch Logs
+- Events accumulate in SQS queue
+
+**Root Causes:**
+1. Lambda Layer not configured in config.yaml
+2. Incorrect layer ARN (wrong region, version, or architecture)
+3. Layer ARN format error
+
+**Solutions:**
+
+1. **Verify Layer Configuration:**
+   ```yaml
+   coreProcessing:
+     eventTransformer:
+       lambdaLayerArn: arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python313-Arm64:15
+   ```
+
+2. **Check Region Match:**
+   Layer ARN region MUST match deployment region:
+   ```bash
+   # Correct - both us-east-1
+   lambdaLayerArn: arn:aws:lambda:us-east-1:...
+   # Deployment region: us-east-1
+   
+   # Incorrect - mismatched regions
+   lambdaLayerArn: arn:aws:lambda:us-west-2:...
+   # Deployment region: us-east-1
+   ```
+
+3. **Verify Architecture Compatibility:**
+   Layer must be ARM64 for ARM64 Lambda:
+   ```
+   arn:aws:lambda:REGION:336392948345:layer:AWSSDKPandas-Python313-Arm64:15
+                                                                 ^^^^^^^^
+                                                                 Must be ARM64
+   ```
+
+4. **Check Python Version:**
+   Layer Python version must match Lambda runtime (Python 3.13):
+   ```
+   arn:aws:lambda:REGION:336392948345:layer:AWSSDKPandas-Python313-Arm64:15
+                                                           ^^^^^^^^^^
+                                                           Must be Python313
+   ```
+
+5. **Verify Layer Attachment:**
+   Check Lambda configuration in AWS Console:
+   - Open Lambda function in AWS Console
+   - Go to "Configuration" > "Layers"
+   - Verify layer is attached with correct ARN
+
+#### Lambda Deployment Package Too Large
+
+**Symptoms:**
+- CDK deployment fails with package size error
+- Error: "Unzipped size must be smaller than 262144000 bytes"
+
+**Root Cause:**
+awswrangler is bundled in deployment package instead of using layer
+
+**Solution:**
+1. Verify awswrangler is commented out in requirements.txt:
+   ```python
+   # awswrangler>=3.0.0  # Provided by Lambda Layer
+   ```
+
+2. Ensure lambdaLayerArn is configured in config.yaml
+
+3. Clean and redeploy:
+   ```bash
+   cd integrations/security-lake/cdk
+   rm -rf cdk.out
+   npm run build
+   cdk deploy -c configFile=config.yaml
+   ```
+
+#### Parquet Generation Errors
+
+**Symptoms:**
+- Events fail during Parquet serialization
+- Error: "pyarrow.lib.ArrowInvalid" or "pandas AttributeError"
+
+**Root Cause:**
+Version incompatibility between pandas, pyarrow, and awswrangler
+
+**Solution:**
+Ensure layer version compatibility:
+- awswrangler: >=3.0.0
+- pandas: >=2.0.0
+- pyarrow: >=15.0.0,<21.0.0 (ARM64 Lambda requirement)
+
+Use layer version 15 or higher for Python 3.13 + ARM64:
+```yaml
+lambdaLayerArn: arn:aws:lambda:REGION:336392948345:layer:AWSSDKPandas-Python313-Arm64:15
+```
+
+For the latest compatible version, check: https://github.com/aws/aws-sdk-pandas/releases
+
 ### Debug Commands
 ```bash
 # Test CloudTrail Channel directly
@@ -1131,19 +1303,61 @@ aws lambda invoke \
 
 ## Dependencies
 
-### Python Packages
-- `boto3>=1.26.0`: AWS SDK for CloudTrail and SQS operations
-- `json`: JSON processing (built-in)
-- `logging`: Logging utilities (built-in)
-- `os`: Environment variables (built-in)
+The Event Transformer has two categories of dependencies:
+
+### Bundled Dependencies
+
+These packages are included in the Lambda deployment package (specified in requirements.txt):
+
+- **python-dateutil>=2.8.2**: Date and time parsing utilities
+- **jsonpath-ng>=1.6.1**: JSONPath query support for complex data extraction
+- **Jinja2>=3.1.2**: Template rendering engine for OCSF event templates
+- **PyYAML>=6.0.1**: YAML template file loading and parsing
+
+### Lambda Layer Dependencies
+
+These packages are provided by the AWS SDK for pandas Lambda Layer (NOT bundled in deployment package):
+
+- **awswrangler**: Core library for Parquet generation and S3 operations
+- **pandas**: DataFrame operations for OCSF event structuring
+- **pyarrow**: Low-level Parquet format implementation
+
+**Important:** awswrangler is commented out in requirements.txt because it is provided by the Lambda Layer. Do not uncomment it unless you are building a custom layer.
+
+```python
+# In requirements.txt:
+# awswrangler>=3.0.0  # Provided by Lambda Layer - DO NOT UNCOMMENT
+```
+
+### Runtime-Provided Dependencies
+
+- **boto3**: AWS SDK for Python (provided by Lambda runtime environment)
+- **botocore**: Low-level AWS service access (provided by Lambda runtime)
+
+### Dependency Management
+
+**For Local Development:**
+```bash
+pip install -r requirements.txt
+pip install -r requirements-dev.txt  # For testing
+pip install awswrangler  # For local testing only
+```
+
+**For Lambda Deployment:**
+- Bundled dependencies are packaged via CDK Docker bundling
+- Layer dependencies are attached via lambdaLayerArn configuration
+- Runtime dependencies are automatically available
 
 ### AWS Services
+
 - **CloudTrail**: Event Data Store and Channel for event ingestion
 - **SQS**: Message queue for event processing
 - **Lambda**: Function execution environment
 - **CloudWatch**: Logging and monitoring
+- **Security Lake**: S3-based security data lake with OCSF schema
 
 ### CloudTrail Requirements
+
 - **Event Data Store**: Must support external event ingestion
 - **Channel**: Configured for the target Event Data Store
 - **API Permissions**: `cloudtrail-data:PutAuditEvents` and Channel access

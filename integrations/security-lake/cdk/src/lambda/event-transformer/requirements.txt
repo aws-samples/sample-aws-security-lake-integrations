@@ -12,6 +12,5 @@ Jinja2>=3.1.2
 PyYAML>=6.0.1
 
 # Parquet support for Security Lake compliance
-# Using PyArrow with proper array handling
-pyarrow>=15.0.0,<21.0.0
-numpy>=1.24.0,<2.0.0
+# PyArrow for basic Parquet operations (AWS Wrangler provided by Lambda Layer)
+# pyarrow>=15.0.0,<21.0.0

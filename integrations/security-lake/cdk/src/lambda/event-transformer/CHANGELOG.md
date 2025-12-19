@@ -1,5 +1,126 @@
 # Event Transformer Lambda - Change Log
 
+## Version 3.2.0 (2025-11-07)
+
+### New Features
+
+#### Azure Regulatory Compliance Assessment OCSF Template
+
+**Added comprehensive OCSF template for Azure regulatory compliance events**
+
+- **Template File**: [`templates/regulatory_compliance_assessment_ocsf.yaml`](templates/regulatory_compliance_assessment_ocsf.yaml)
+- **OCSF Class**: 2003 (Compliance Finding)
+- **OCSF Version**: 1.1.0
+
+**Supported Event Types:**
+- `Microsoft.Security/regulatoryComplianceStandards/regulatoryComplianceControls/regulatoryComplianceAssessments`
+
+**Action Mappings:**
+- Insert → OCSF Activity ID 1 (Create, Type UID 200301)
+- Write → OCSF Activity ID 2 (Update, Type UID 200302)
+- Delete → OCSF Activity ID 3 (Delete, Type UID 200303)
+
+**Custom Filters (9 total):**
+1. `map_action_to_activity_id` - Azure action to OCSF activity_id mapping
+2. `map_action_to_activity_name` - Action to human-readable name conversion
+3. `map_action_to_type_uid` - Type UID calculation (200300 + activity_id)
+4. `map_compliance_status` - Azure state to OCSF status string mapping
+5. `map_compliance_status_id` - State to OCSF status_id conversion
+6. `extract_compliance_standard` - Standard name extraction from resource ID
+7. `format_resource_count_status` - Resource count formatting (passed/failed/skipped)
+8. `derive_severity_from_state` - Intelligent severity calculation based on failure percentage
+9. `derive_severity_id_from_state` - Severity name to ID mapping
+
+**Key Features:**
+- Automatic compliance standard extraction (Azure CSPM, NIST, PCI-DSS, ISO, SOC, etc.)
+- Intelligent severity calculation based on resource failure percentages
+- Assessment details link mapping to `finding_info.src_url`
+- Resource count status details (Passed: X | Failed: Y | Skipped: Z format)
+- Comprehensive test suite with 28 tests covering all filters and edge cases
+
+**Event Type Mapping:**
+- Updated [`mapping/event_type_mappings.json`](mapping/event_type_mappings.json) with `azure_compliance_assessment` entry
+- Match mode: "contains" for flexible event type detection
+- Routes to `regulatory_compliance_assessment_ocsf.yaml` template
+
+**Testing:**
+- Test file: [`test_regulatory_compliance_template.py`](test_regulatory_compliance_template.py)
+- 28 comprehensive test cases including custom filter tests, integration tests, and edge cases
+- Run script: `run_regulatory_compliance_tests.sh`
+
+### Bug Fixes
+
+#### Template Transformer Filter Interdependency
+
+**Fixed filter registration to support interdependent filters**
+
+- **Issue**: `derive_severity_id_from_state` filter could not call `derive_severity_from_state`
+- **Location**: [`core/template_transformer.py`](core/template_transformer.py) - filter registration logic
+- **Root Cause**: Filters executed in isolated namespaces without access to other filters
+- **Fix**: Modified filter registration to execute all filters in shared namespace
+- **Impact**: Enables complex filters that call other filters (e.g., severity calculation hierarchy)
+
+**Implementation Details:**
+- All template filters now registered in shared execution namespace
+- Filters can reference each other during execution
+- Namespace includes standard Python functions and datetime module
+- Maintains backward compatibility with existing templates
+
+### Documentation Updates
+
+**README.md:**
+- Added comprehensive section documenting Azure Regulatory Compliance Assessment template
+- Documented all 9 custom filters with descriptions and examples
+- Included event structure examples (input and OCSF output)
+- Added action mapping table and supported regulatory standards list
+- Documented testing procedures and configuration requirements
+
+**CHANGELOG.md:**
+- Added this version entry documenting template addition and bug fix
+
+### Files Modified
+
+**Template System:**
+- [`templates/regulatory_compliance_assessment_ocsf.yaml`](templates/regulatory_compliance_assessment_ocsf.yaml) - New template file
+- [`mapping/event_type_mappings.json`](mapping/event_type_mappings.json) - Added azure_compliance_assessment mapping
+- [`core/template_transformer.py`](core/template_transformer.py) - Fixed filter interdependency issue
+
+**Testing:**
+- [`test_regulatory_compliance_template.py`](test_regulatory_compliance_template.py) - New comprehensive test suite
+- [`run_regulatory_compliance_tests.sh`](run_regulatory_compliance_tests.sh) - Test execution script
+
+**Documentation:**
+- [`README.md`](README.md) - Added regulatory compliance template section
+- [`CHANGELOG.md`](CHANGELOG.md) - This version entry
+
+### Compatibility
+
+**No Breaking Changes:**
+- All changes are additive and backward compatible
+- Existing templates continue to function without modification
+- Filter namespace changes improve functionality without affecting existing filters
+
+**Requirements:**
+- Python 3.11+
+- No new dependencies required
+- Uses existing Jinja2, YAML, and JSON modules
+
+### Migration Notes
+
+**For New Deployments:**
+- Template automatically available via event type mapping
+- No configuration changes required
+- Events matching `Microsoft.Security/regulatoryComplianceStandards` route automatically
+
+**For Testing:**
+```bash
+# Run regulatory compliance template tests
+pytest test_regulatory_compliance_template.py -v
+
+# Or use convenience script
+./run_regulatory_compliance_tests.sh
+```
+
 ## Version 3.1.1 (2024-10-08)
 
 ### Critical Bug Fixes

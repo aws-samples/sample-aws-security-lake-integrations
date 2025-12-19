@@ -1,0 +1,194 @@
+# 2025 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
+name: "azure_noninteractive_user_signin_to_ocsf_authentication"
+input_schema: "azure_noninteractive_user_signin_logs"
+output_schema: "ocsf_authentication_v110"
+
+# JSONPath extractors for Azure Non-Interactive User Sign-In Logs
+extractors:
+  # Core identification
+  time: "$.event_data.properties.createdDateTime"
+  signin_id: "$.event_data.properties.id"
+  user_id: "$.event_data.properties.userId"
+  user_principal_name: "$.event_data.properties.userPrincipalName"
+  user_display_name: "$.event_data.properties.userDisplayName"
+  user_type: "$.event_data.properties.userType"
+  app_id: "$.event_data.properties.appId"
+  app_display_name: "$.event_data.properties.appDisplayName"
+  
+  # Authentication details
+  is_interactive: "$.event_data.properties.isInteractive"
+  incoming_token_type: "$.event_data.properties.incomingTokenType"
+  authentication_protocol: "$.event_data.properties.authenticationProtocol"
+  authentication_requirement: "$.event_data.properties.authenticationRequirement"
+  client_app_used: "$.event_data.properties.clientAppUsed"
+  
+  # Network and location
+  ip_address: "$.event_data.properties.ipAddress"
+  user_agent: "$.event_data.properties.userAgent"
+  location_city: "$.event_data.properties.location.city"
+  location_state: "$.event_data.properties.location.state"
+  location_country: "$.event_data.properties.location.countryOrRegion"
+  latitude: "$.event_data.properties.location.geoCoordinates.latitude"
+  longitude: "$.event_data.properties.location.geoCoordinates.longitude"
+  
+  # Device details
+  device_id: "$.event_data.properties.deviceDetail.deviceId"
+  device_os: "$.event_data.properties.deviceDetail.operatingSystem"
+  device_browser: "$.event_data.properties.deviceDetail.browser"
+  
+  # Status and result
+  status_error_code: "$.event_data.properties.status.errorCode"
+  status_additional_details: "$.event_data.properties.status.additionalDetails"
+  result_type: "$.event_data.resultType"
+  result_signature: "$.event_data.resultSignature"
+  
+  # Risk assessment
+  risk_detail: "$.event_data.properties.riskDetail"
+  risk_level_aggregated: "$.event_data.properties.riskLevelAggregated"
+  risk_level_during_signin: "$.event_data.properties.riskLevelDuringSignIn"
+  risk_state: "$.event_data.properties.riskState"
+  
+  # Conditional Access
+  conditional_access_status: "$.event_data.properties.conditionalAccessStatus"
+  
+  # Resource accessed
+  resource_id: "$.event_data.properties.resourceId"
+  resource_display_name: "$.event_data.properties.resourceDisplayName"
+  resource_tenant_id: "$.event_data.properties.resourceTenantId"
+  
+  # Session and tracking
+  session_id: "$.event_data.properties.sessionId"
+  correlation_id: "$.event_data.correlationId"
+  tenant_id: "$.event_data.tenantId"
+  home_tenant_id: "$.event_data.properties.homeTenantId"
+  
+  # Token details
+  unique_token_identifier: "$.event_data.properties.uniqueTokenIdentifier"
+  sign_in_token_protection_status: "$.event_data.properties.signInTokenProtectionStatus"
+  
+  # Cross-tenant details
+  cross_tenant_access_type: "$.event_data.properties.crossTenantAccessType"
+  
+  # Category for validation
+  category: "$.event_data.category"
+
+# OCSF v1.1.0 Authentication template (class_uid: 3002)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 3002,
+    "class_name": "Authentication",
+    "category_uid": 3,
+    "category_name": "Identity & Access Management",
+    "activity_id": {% if extractors.status_error_code == 0 %}1{% else %}2{% endif %},
+    "activity_name": "{% if extractors.status_error_code == 0 %}Logon{% else %}Logoff{% endif %}",
+    "type_uid": 300201,
+    "type_name": "Non-Interactive User Authentication",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": {% if extractors.risk_level_aggregated == "none" %}1{% elif extractors.risk_level_aggregated == "low" %}2{% elif extractors.risk_level_aggregated == "medium" %}3{% elif extractors.risk_level_aggregated == "high" %}4{% elif extractors.risk_level_aggregated == "extreme" %}6{% else %}1{% endif %},
+    "severity": "{% if extractors.risk_level_aggregated == "none" %}Informational{% elif extractors.risk_level_aggregated == "low" %}Low{% elif extractors.risk_level_aggregated == "medium" %}Medium{% elif extractors.risk_level_aggregated == "high" %}High{% elif extractors.risk_level_aggregated == "extreme" %}Critical{% else %}Informational{% endif %}",
+    "status": "{% if extractors.status_error_code == 0 %}Success{% else %}Failure{% endif %}",
+    "status_id": {% if extractors.status_error_code == 0 %}1{% else %}2{% endif %},
+    "status_code": "{{ extractors.status_error_code | default('0') }}",
+    "status_detail": "{{ extractors.status_additional_details | default('') | json_escape }}",
+    "message": "Azure Non-Interactive User {% if extractors.status_error_code == 0 %}successful{% else %}failed{% endif %} sign-in: {{ extractors.user_principal_name | default('Unknown') }} ({{ extractors.incoming_token_type | default('') }}) to {{ extractors.resource_display_name | default('Unknown Resource') }}",
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Microsoft Entra ID",
+        "vendor_name": "Microsoft",
+        "feature": {
+          "name": "Non-Interactive User Sign-In Logs"
+        }
+      },
+      "uid": "{{ extractors.signin_id }}",
+      "correlation_uid": "{{ extractors.correlation_id }}"
+    },
+    "cloud": {
+      "tenant_uid": "{{ extractors.tenant_id }}"
+    },
+    "actor": {
+      "user": {
+        "name": "{{ extractors.user_display_name | default('Unknown') }}",
+        "uid": "{{ extractors.user_id }}",
+        "email_addr": "{{ extractors.user_principal_name }}",
+        "type": "User",
+        "type_id": 1
+      },
+      "app_name": "{{ extractors.app_display_name | default('') }}",
+      "app_uid": "{{ extractors.app_id }}",
+      "session": {
+        "uid": "{{ extractors.session_id | default('') }}"{% if extractors.unique_token_identifier %},
+        "issuer": "{{ extractors.unique_token_identifier }}"{% endif %}
+      }
+    },
+    "src_endpoint": {
+      {% if extractors.ip_address | extract_ip | is_valid %}"ip": "{{ extractors.ip_address | extract_ip }}",
+      {% endif %}"port": {{ (extractors.ip_address | extract_port) | default(443) | int }},
+      "svc_name": "HTTPS"{% if extractors.location_city or extractors.location_state or extractors.location_country %},
+      "location": {
+        {% if extractors.location_city %}"city": "{{ extractors.location_city }}"{% if extractors.location_state or extractors.location_country %},{% endif %}{% endif %}
+        {% if extractors.location_state %}"region": "{{ extractors.location_state }}"{% if extractors.location_country %},{% endif %}{% endif %}
+        {% if extractors.location_country %}"country": "{{ extractors.location_country }}"{% endif %}{% if extractors.latitude and extractors.longitude %},
+        "coordinates": [{{ extractors.longitude }}, {{ extractors.latitude }}]{% endif %}
+      }{% endif %}{% if extractors.user_agent or extractors.device_browser %},
+      "agent_list": [
+        {
+          "name": "{{ extractors.user_agent | default(extractors.device_browser) }}",
+          "type": "Browser",
+          "type_id": 1
+        }
+      ]{% endif %}{% if extractors.device_id or extractors.device_os %},
+      "device": {
+        {% if extractors.device_id %}"uid": "{{ extractors.device_id }}"{% if extractors.device_os %},{% endif %}{% endif %}
+        {% if extractors.device_os %}"os": {
+          "name": "{{ extractors.device_os }}"
+        }{% endif %}
+      }{% endif %}
+    },
+    "dst_endpoint": {
+      "svc_name": "{{ extractors.resource_display_name | default('Azure Resource') }}",
+      "uid": "{{ extractors.resource_id }}"
+    },
+    "auth_protocol": "{{ extractors.authentication_protocol | default('OAuth2') }}",
+    "auth_protocol_id": 2,
+    "is_remote": true,
+    "logon_type": "Non-Interactive ({{ extractors.incoming_token_type | default('Token') }})",
+    "logon_type_id": 10{% if extractors.risk_level_aggregated or extractors.risk_detail or extractors.risk_state %},
+    "risk_score": {% if extractors.risk_level_aggregated == "none" %}0{% elif extractors.risk_level_aggregated == "low" %}25{% elif extractors.risk_level_aggregated == "medium" %}50{% elif extractors.risk_level_aggregated == "high" %}75{% elif extractors.risk_level_aggregated == "extreme" %}100{% else %}0{% endif %},
+    "risk_level": "{{ extractors.risk_level_aggregated | default('') }}",
+    "risk_level_id": {% if extractors.risk_level_aggregated == "none" %}0{% elif extractors.risk_level_aggregated == "low" %}1{% elif extractors.risk_level_aggregated == "medium" %}2{% elif extractors.risk_level_aggregated == "high" %}3{% elif extractors.risk_level_aggregated == "extreme" %}4{% else %}0{% endif %}{% endif %}{% if extractors.conditional_access_status %},
+    "observables": [
+      {
+        "name": "conditional_access_status",
+        "type": "Policy Evaluation",
+        "type_id": 99,
+        "value": "{{ extractors.conditional_access_status }}"
+      }{% if extractors.client_app_used %},
+      {
+        "name": "client_app_used",
+        "type": "Client Application",
+        "type_id": 99,
+        "value": "{{ extractors.client_app_used }}"
+      }{% endif %}
+    ]{% endif %},
+    "unmapped": {
+      "is_interactive": {{ extractors.is_interactive | default(false) | lower }},
+      "incoming_token_type": "{{ extractors.incoming_token_type | default('') }}",
+      "authentication_protocol": "{{ extractors.authentication_protocol | default('') }}",
+      "authentication_requirement": "{{ extractors.authentication_requirement | default('') }}",
+      "client_app_used": "{{ extractors.client_app_used | default('') }}",
+      "user_type": "{{ extractors.user_type | default('') }}",
+      "risk_detail": "{{ extractors.risk_detail | default('') }}",
+      "risk_state": "{{ extractors.risk_state | default('') }}",
+      "risk_level_during_signin": "{{ extractors.risk_level_during_signin | default('') }}",
+      "home_tenant_id": "{{ extractors.home_tenant_id | default('') }}",
+      "resource_tenant_id": "{{ extractors.resource_tenant_id | default('') }}",
+      "cross_tenant_access_type": "{{ extractors.cross_tenant_access_type | default('') }}",
+      "sign_in_token_protection_status": "{{ extractors.sign_in_token_protection_status | default('') }}"
+    }
+  }

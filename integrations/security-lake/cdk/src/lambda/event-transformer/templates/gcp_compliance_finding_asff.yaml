@@ -56,6 +56,13 @@ template: |
       "Label": "{{ extractors.severity | gcp_to_asff_severity_label }}",
       "Normalized": {{ extractors.severity | gcp_to_asff_severity_normalized }}
     },
+    "FindingProviderFields": {
+      "Types": ["Software and Configuration Checks/Industry and Regulatory Standards"],
+      "Severity": {
+        "Label": "{{ extractors.severity | gcp_to_asff_severity_label }}",
+        "Original": "{{ extractors.severity | upper }}"
+      }
+    },
     "Title": "{{ extractors.category | default('GCP Compliance Finding') | truncate(200) }}",
     "Description": "{{ extractors.description | default(extractors.category) | default('Misconfiguration or compliance issue detected in GCP resource') | json_escape | truncate(1024) }}",{% if extractors.compliances %}
     "Compliance": {
@@ -72,12 +79,16 @@ template: |
       "SecurityControlId": "{{ first_compliance.ids[0] }}",{% endif %}{% if first_compliance.standard %}
       "AssociatedStandards": [{
         "StandardsId": "standards/{{ first_compliance.standard | lower | replace(' ', '-') }}"
-      }]{% endif %}{% endif %}
+      }],{% endif %}{% endif %}
+      "StatusReasons": [{
+        "ReasonCode": "{{ extractors.state | gcp_state_to_reason_code }}",
+        "Description": "{{ extractors.description | default(extractors.category) | default('GCP compliance finding') | json_escape | truncate(256) }}"
+      }]
     },{% endif %}{% if extractors.recommendation or extractors.next_steps or extractors.external_uri %}
     "Remediation": {
       "Recommendation": {
-        "Text": "{{ ((extractors.recommendation | default('')) ~ ((' ' ~ extractors.next_steps) if extractors.next_steps else '') ~ (('Review and remediate the compliance issue according to GCP Security Command Center recommendations') if not extractors.recommendation and not extractors.next_steps else '')) | json_escape | truncate(400) }}",
-        "Url": "{{ extractors.external_uri | default('https://console.cloud.google.com/security/command-center') }}"
+        "Text": "{% set cleaned_rec = (extractors.recommendation | default('') | replace('None', '') | replace('\n', ' ') | replace('\r', ' ')).strip() %}{% set cleaned_next = (extractors.next_steps | default('') | replace('\n', ' ') | replace('\r', ' ')).strip() %}{{ ((cleaned_rec ~ (' ' if cleaned_rec and cleaned_next else '') ~ cleaned_next) if cleaned_rec or cleaned_next else 'Review and remediate the compliance issue according to GCP Security Command Center recommendations') | json_escape | truncate(400) }}",
+        {% set uri_value = extractors.external_uri | default('', true) %}{% if uri_value and uri_value.lower() != 'none' and uri_value.startswith('http') %}"Url": "{{ uri_value }}"{% else %}"Url": "https://console.cloud.google.com/security/command-center"{% endif %}
       }
     },{% endif %}{% if extractors.external_uri %}
     "SourceUrl": "{{ extractors.external_uri }}",{% endif %}
@@ -90,7 +101,7 @@ template: |
       "gcp/complianceStandard": "{{ first_compliance.standard }}",{% endif %}{% if first_compliance.version %}
       "gcp/complianceVersion": "{{ first_compliance.version }}",{% endif %}{% endif %}
       "gcp/state": "{{ extractors.state | default('ACTIVE') }}",
-      "aws/securityhub/FindingId": "{{ extractors.finding_id | extract_finding_uid }}",
+      "aws/securityhub/FindingId": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default/{{ extractors.finding_id | extract_finding_uid }}",
       "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Google Cloud Security Command Center') }}",
       "aws/securityhub/CompanyName": "Google"
     },
@@ -108,6 +119,8 @@ template: |
         }
       }
     }],
+    "Workflow": {"Status": "NEW"},
+    "Region": "{{ aws_region }}",
     "WorkflowState": "NEW",
     "RecordState": "{{ extractors.state | gcp_state_to_asff_record_state }}"
   }
@@ -179,7 +192,22 @@ filters:
             'ACTIVE': 'FAILED',
             'INACTIVE': 'PASSED'
         }
-        return state_map.get(str(state).upper(), 'WARNING')
+        return state_map.get(str(state).upper(), 'NOT_AVAILABLE')
+  
+  gcp_state_to_reason_code: |
+    def gcp_state_to_reason_code(state):
+        # Valid ASFF ReasonCode values: CONSTRAINT_NOT_SATISFIED, NOT_APPLICABLE, NOT_VERIFIED, INTERNAL_SERVICE_ERROR, RESOURCE_NOT_FOUND, RESOURCE_DELETED
+        if not state:
+            return 'INTERNAL_SERVICE_ERROR'
+        state_upper = str(state).upper()
+        if state_upper == 'ACTIVE':
+            return 'CONSTRAINT_NOT_SATISFIED'
+        elif state_upper == 'INACTIVE':
+            return 'NOT_APPLICABLE'
+        elif state_upper in ['MUTED', 'UNMUTED']:
+            return 'NOT_APPLICABLE'
+        else:
+            return 'INTERNAL_SERVICE_ERROR'
   
   normalize_timestamp: |
     def normalize_timestamp(timestamp_str):

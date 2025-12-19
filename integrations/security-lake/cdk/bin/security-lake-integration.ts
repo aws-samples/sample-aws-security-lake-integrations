@@ -18,6 +18,11 @@ import { SecurityLakeStack } from '../lib/security-lake-stack';
 import { loadConfig } from '../lib/core/config-loader';
 import { Logger } from '../lib/core/logger';
 import { ModuleRegistry } from '../lib/core/module-registry';
+import {
+  validateTemplatesOrThrow,
+  getDefaultTemplatesDir,
+  TemplateValidationError,
+} from '../lib/core/template-validator';
 import { AzureIntegrationModule } from '../modules/azure/azure-integration-module';
 import { GoogleSccIntegrationModule } from '../modules/google-scc/google-scc-integration-module';
 
@@ -26,6 +31,28 @@ const logger = new Logger('CDK-App');
 
 async function main() {
   try {
+    // ============================================
+    // TEMPLATE VALIDATION (runs before CDK synth)
+    // ============================================
+    logger.info('Validating event transformer templates...');
+
+    try {
+      const templatesDir = getDefaultTemplatesDir();
+      validateTemplatesOrThrow(templatesDir, {
+        warningsAsErrors: process.env.STRICT_VALIDATION === 'true',
+      });
+      logger.info('Template validation passed');
+    } catch (error) {
+      if (error instanceof TemplateValidationError) {
+        logger.error('Template validation failed');
+        console.error('\n' + error.message);
+        process.exit(1);
+      }
+      // Re-throw non-validation errors
+      throw error;
+    }
+    // ============================================
+
     // Register integration modules
     logger.info('Registering integration modules');
     ModuleRegistry.register('azure', () => new AzureIntegrationModule());

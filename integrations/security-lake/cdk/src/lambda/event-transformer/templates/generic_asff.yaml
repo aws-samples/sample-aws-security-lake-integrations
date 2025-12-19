@@ -47,6 +47,13 @@ template: |
       "Label": "INFORMATIONAL",
       "Normalized": 10
     },
+    "FindingProviderFields": {
+      "Types": ["Unusual Behaviors/Application"],
+      "Severity": {
+        "Label": "INFORMATIONAL",
+        "Original": "INFORMATIONAL"
+      }
+    },
     "Title": "{{ extractors.event_name | default(extractors.operation_name) | default('Azure Event') }}",
     "Description": "Generic Azure event: {{ extractors.event_type | default('Unknown Type') }}",
     "ProductFields": {
@@ -57,7 +64,8 @@ template: |
       "azure/category": "{{ extractors.category | default('Unknown') }}",
       "azure/status": "{{ extractors.status | default('Unknown') }}",
       "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Azure Services') }}",
-      "aws/securityhub/CompanyName": "Microsoft"
+      "aws/securityhub/CompanyName": "Microsoft",
+      "aws/securityhub/FindingId": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default/{{ extractors.event_id | default(generate_uuid()) }}"
     },
     "Resources": [{
       "Type": "Other",
@@ -72,6 +80,8 @@ template: |
         }
       }
     }],
+    "Workflow": {"Status": "NEW"},
+    "Region": "{{ aws_region }}",
     "WorkflowState": "NEW",
     "RecordState": "ACTIVE"
   }

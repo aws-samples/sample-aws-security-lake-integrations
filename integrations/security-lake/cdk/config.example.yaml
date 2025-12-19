@@ -73,6 +73,12 @@ coreProcessing:
     reservedConcurrentExecutions: 10
     batchSize: 10
     maximumBatchingWindowInSeconds: 5
+    # Lambda Layer ARN for AWS Wrangler (optional)
+    # Provides AWS SDK for pandas (awswrangler) to handle array serialization in Lambda
+    # Required for Python 3.13 ARM64 runtime to avoid package size limits
+    # Example for ca-central-1: arn:aws:lambda:ca-central-1:336392948345:layer:AWSSDKPandas-Python313-Arm64:5
+    # Find layers at: https://aws-sdk-pandas.readthedocs.io/en/stable/layers.html
+    lambdaLayerArn: ''  # Leave empty to skip adding layer
     # Enable CloudTrail Event Data Store integration for the event transformer
     # Set to true if you want to send events to CloudTrail Event Data Store
     # Note: Requires cloudTrailEventDataStore.enabled to be true to create resources

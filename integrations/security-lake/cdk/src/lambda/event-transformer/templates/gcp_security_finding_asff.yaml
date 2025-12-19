@@ -66,6 +66,13 @@ template: |
       "Label": "{{ extractors.severity | gcp_to_asff_severity_label }}",
       "Normalized": {{ extractors.severity | gcp_to_asff_severity_normalized }}
     },
+    "FindingProviderFields": {
+      "Types": ["TTPs{% if extractors.category %}/{{ extractors.category | replace(' ', '-') }}{% endif %}"],
+      "Severity": {
+        "Label": "{{ extractors.severity | gcp_to_asff_severity_label }}",
+        "Original": "{{ extractors.severity | upper }}"
+      }
+    },
     "Title": "{{ extractors.category | default('GCP Security Threat Detection') | truncate(200) }}",
     "Description": "{{ extractors.description | default(extractors.category) | default('Security threat detected in GCP resource') | truncate(1024) }}",{% if extractors.recommendation or extractors.next_steps or extractors.external_uri %}
     "Remediation": {
@@ -84,7 +91,7 @@ template: |
       "gcp/principalEmail": "{{ extractors.access_principal_email }}",{% endif %}{% if extractors.access_caller_ip %}
       "gcp/callerIp": "{{ extractors.access_caller_ip }}",{% endif %}
       "gcp/state": "{{ extractors.state | default('ACTIVE') }}",
-      "aws/securityhub/FindingId": "{{ extractors.finding_id | extract_finding_uid }}",
+      "aws/securityhub/FindingId": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default/{{ extractors.finding_id | extract_finding_uid }}",
       "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Google Cloud Security Command Center') }}",
       "aws/securityhub/CompanyName": "Google"
     },{% if extractors.mitre_attack %}
@@ -140,6 +147,8 @@ template: |
         }
       }
     }],
+    "Workflow": {"Status": "NEW"},
+    "Region": "{{ aws_region }}",
     "WorkflowState": "NEW",
     "RecordState": "{{ extractors.state | gcp_state_to_asff_record_state }}"
   }

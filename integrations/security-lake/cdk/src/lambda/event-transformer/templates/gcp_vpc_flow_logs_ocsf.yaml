@@ -72,12 +72,12 @@ template: |
     "metadata": {
       "version": "1.0.0",
       "product": {
-        "name": "VPC Flow Logs",
+        "name": "Google Flow Logs",
         "vendor_name": "Google Cloud Platform",
         "version": "1.0",
         "uid": "{{ extractors.project_id }}",
         "feature": {
-          "name": "VPC Flow Logs",
+          "name": "Google Flow Logs",
           "version": "1.0.0"
         },
         "lang": "en"
@@ -171,6 +171,7 @@ template: |
         "value": "{{ extractors.dest_vm_name }}"
       }{% endif %}
     ],
+    "unmapped": {"raw_data": {{ gcp_event | to_json }}},
     "enrichment": {
       "value": "gcpFlowData",
       "data": {

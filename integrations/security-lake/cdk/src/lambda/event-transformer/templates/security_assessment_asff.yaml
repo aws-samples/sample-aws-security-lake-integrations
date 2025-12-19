@@ -53,11 +53,18 @@ template: |
       "Label": "{{ extractors.severity | asff_severity_label }}",
       "Normalized": {{ extractors.severity | asff_severity_normalized }}
     },
+    "FindingProviderFields": {
+      "Types": ["Software and Configuration Checks/Vulnerabilities"],
+      "Severity": {
+        "Label": "{{ extractors.severity | asff_severity_label }}",
+        "Original": "{{ extractors.severity | upper }}"
+      }
+    },
     "Title": "{{ extractors.assessment_name | default('Azure Security Assessment') | truncate(200) }}",
-    "Description": "{{ extractors.assessment_description | default('No description available') | truncate(1024) }}",
+    "Description": "{% set desc = (extractors.assessment_description | default('') | replace('None', '')).strip() %}{{ (desc if desc else 'No description available') | truncate(1024) }}",
     "Remediation": {
       "Recommendation": {
-        "Text": "{{ extractors.remediation_description | default('Review and remediate the security finding') | replace('"', '\\"') | replace('\n', ' ') | truncate(512) }}",
+        "Text": "{% set remediation = (extractors.remediation_description | default('') | replace('None', '') | replace('\n', ' ') | replace('\r', ' ')).strip() %}{{ (remediation if remediation else 'Review and remediate the security assessment finding according to Microsoft Defender for Cloud recommendations') | replace('"', '\\"') | truncate(512) }}",
         "Url": "https://portal.azure.com/#blade/Microsoft_Azure_Security/RecommendationsBlade"
       }
     },
@@ -68,7 +75,8 @@ template: |
       "azure/subscriptionId": "{{ extractors.resource_id | extract_subscription_id | default('Unknown') }}",
       "azure/cveId": "{{ extractors.cve_id | default('') }}",
       "aws/securityhub/ProductName": "{{ config.asff_product_name | default('Microsoft Defender - Security Assessment') }}",
-      "aws/securityhub/CompanyName": "Microsoft"
+      "aws/securityhub/CompanyName": "Microsoft",
+      "aws/securityhub/FindingId": "arn:aws:securityhub:{{ aws_region }}:{{ aws_account_id }}:product/{{ aws_account_id }}/default/{{ extractors.assessment_id | default(generate_uuid()) }}"
     },
     "Resources": [{
       "Type": "Other",
@@ -82,6 +90,8 @@ template: |
         }
       }
     }],
+    "Workflow": {"Status": "NEW"},
+    "Region": "{{ aws_region }}",
     "WorkflowState": "NEW",
     "RecordState": "{{ extractors.status | asff_record_state }}"
   }

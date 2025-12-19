@@ -124,18 +124,16 @@ template: |
         "value": "{{ observable.value }}"
       }{{ ',' if not loop.last else '' }}
       {% endfor %}
-    ]{% endif %}{% if extractors.azure_resource_id or extractors.compromised_entity %},
-    "resources": [
-      {
-        "uid": "{{ extractors.azure_resource_id or extractors.compromised_entity }}",
-        "name": "{{ extractors.compromised_entity | extract_resource_name }}",
-        "type": "{{ extractors.azure_resource_id | extract_azure_resource_type }}",
-        "cloud_partition": "azure-commercial",
-        "region": "{{ extractors.azure_resource_id | extract_azure_region }}",
-        "role_id": 3,
-        "role": "Affected"
-      }
-    ]{% endif %}{% if extractors.remediation_steps %},
+    ]{% endif %},
+    "resources": {
+      "uid": "{{ extractors.azure_resource_id or extractors.compromised_entity }}",
+      "name": "{{ extractors.compromised_entity | extract_resource_name }}",
+      "type": "{{ extractors.azure_resource_id | extract_azure_resource_type }}",
+      "cloud_partition": "azure-commercial",
+      "region": "{{ extractors.azure_resource_id | extract_azure_region }}",
+      "role_id": 3,
+      "role": "Affected"
+    }{% if extractors.remediation_steps %},
     "remediation": {
       "desc": "{{ extractors.remediation_steps | join(' ') | json_escape | truncate(500) }}"
     }{% endif %},

@@ -1,0 +1,283 @@
+name: "azure_api_activity_to_ocsf_api_activity"
+input_schema: "azure_administrative_activity_logs"
+output_schema: "ocsf_api_activity_v110"
+
+# JSONPath extractors for Azure Administrative Activity Logs
+extractors:
+  # Core timestamps
+  time: "$.event_data.time"
+  
+  # API operation details
+  operation_name: "$.event_data.operationName"
+  category: "$.event_data.category"
+  resource_id: "$.event_data.resourceId"
+  
+  # Result information
+  result_type: "$.event_data.resultType"
+  result_signature: "$.event_data.resultSignature"
+  status_code: "$.event_data.properties.statusCode"
+  status_message: "$.event_data.properties.statusMessage"
+  duration_ms: "$.event_data.durationMs"
+  
+  # Caller information
+  caller_ip_address: "$.event_data.callerIpAddress"
+  
+  # Identity and authorization
+  principal_id: "$.event_data.identity.authorization.evidence.principalId"
+  principal_type: "$.event_data.identity.authorization.evidence.principalType"
+  role: "$.event_data.identity.authorization.evidence.role"
+  role_assignment_scope: "$.event_data.identity.authorization.evidence.roleAssignmentScope"
+  authorization_action: "$.event_data.identity.authorization.action"
+  authorization_scope: "$.event_data.identity.authorization.scope"
+  
+  # User claims
+  user_name: "$.event_data.identity.claims.name"
+  user_upn: '$.event_data.identity.claims["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn"]'
+  user_object_id: '$.event_data.identity.claims["http://schemas.microsoft.com/identity/claims/objectidentifier"]'
+  app_id: "$.event_data.identity.claims.appid"
+  
+  # Tenant and subscription
+  tenant_id: "$.event_data.tenantId"
+  hierarchy: "$.event_data.properties.hierarchy"
+  
+  # Correlation
+  correlation_id: "$.event_data.correlationId"
+  
+  # Location and metadata
+  role_location: "$.event_data.RoleLocation"
+  level: "$.event_data.level"
+  entity: "$.event_data.properties.entity"
+  message: "$.event_data.properties.message"
+
+# OCSF v1.1.0 API Activity template (class_uid: 6003)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 6003,
+    "class_name": "API Activity",
+    "category_uid": 6,
+    "category_name": "Application Activity",
+    "activity_id": {{ extractors.operation_name | derive_activity_id }},
+    "activity_name": "{{ extractors.operation_name | derive_activity_name }}",
+    "type_uid": {{ 600300 + (extractors.operation_name | derive_activity_id) }},
+    "type_name": "API Activity: {{ extractors.operation_name | derive_activity_name }}",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": 1,
+    "severity": "Informational",
+    "status": "{% if extractors.result_type == 'Success' %}Success{% elif extractors.result_type == 'Failure' or extractors.result_type == 'Failed' %}Failure{% else %}Unknown{% endif %}",
+    "status_id": {% if extractors.result_type == 'Success' %}1{% elif extractors.result_type == 'Failure' or extractors.result_type == 'Failed' %}2{% else %}0{% endif %},
+    "status_code": "{{ extractors.status_code | default('') }}",
+    "status_detail": "{{ extractors.result_signature | default('') | json_escape }}",
+    "message": "Azure API Activity: {{ extractors.operation_name | default('Unknown Operation') }} - {{ extractors.result_type | default('Unknown') }}",
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Azure Monitor",
+        "vendor_name": "Microsoft",
+        "feature": {
+          "name": "Activity Logs"
+        }
+      },
+      "profiles": ["cloud", "datetime"],
+      "uid": "{{ extractors.correlation_id }}",
+      "correlation_uid": "{{ extractors.correlation_id }}",
+      "original_time": "{{ extractors.time }}"
+    },
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.hierarchy | extract_subscription_from_hierarchy }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      },
+      "region": "{{ extractors.role_location | default('unknown') }}"
+    },
+    "api": {
+      "operation": "{{ extractors.operation_name | default('Unknown') }}",
+      "service": {
+        "name": "{{ extractors.operation_name | extract_service_name }}"
+      },
+      "request": {
+        "uid": "{{ extractors.correlation_id }}"
+      },
+      "response": {
+        "code": {% if extractors.status_code %}{{ extractors.status_code | status_code_to_int }}{% else %}0{% endif %}
+      }
+    },
+    "actor": {
+      "user": {
+        "uid": "{{ extractors.principal_id | default(extractors.user_object_id) | format_uid }}",
+        "name": "{{ extractors.user_name | default('Unknown User') | json_escape }}",
+        "email_addr": "{{ extractors.user_upn | default('') }}",
+        "type": "{{ extractors.principal_type | default('Unknown') }}",
+        "type_id": {% if extractors.principal_type == 'User' %}1{% elif extractors.principal_type == 'ServicePrincipal' %}3{% elif extractors.principal_type == 'Group' %}2{% else %}0{% endif %}
+      },
+      "idp": {
+        "uid": "{{ extractors.tenant_id }}"
+      },
+      "authorizations": [
+        {
+          "policy": {
+            "name": "{{ extractors.role | default('Unknown Role') }}"
+          }
+        }
+      ],
+      "app_uid": "{{ extractors.app_id | default('') }}"
+    },
+    "src_endpoint": {
+      {% if extractors.caller_ip_address | extract_ip | is_valid %}"ip": "{{ extractors.caller_ip_address | extract_ip }}"{% else %}"ip": "0.0.0.0"{% endif %}
+    },
+    "resources": {
+      "uid": "{{ extractors.resource_id | default('') }}",
+      "type": "{{ extractors.operation_name | extract_resource_type }}",
+      "cloud_partition": "azure-commercial"
+    },
+    "duration": {% if extractors.duration_ms %}{{ extractors.duration_ms | int }}{% else %}0{% endif %},
+    "unmapped": {
+      "authorization_action": "{{ extractors.authorization_action | default('') }}",
+      "authorization_scope": "{{ extractors.authorization_scope | default('') | json_escape }}",
+      "role_assignment_scope": "{{ extractors.role_assignment_scope | default('') }}",
+      "entity": "{{ extractors.entity | default('') | json_escape }}",
+      "level": "{{ extractors.level | default('') }}"
+    }
+  }
+
+# Custom filters for API activity transformation
+filters:
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped
+  
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  extract_subscription_from_hierarchy: |
+    def extract_subscription_from_hierarchy(hierarchy):
+        if not hierarchy or not isinstance(hierarchy, str):
+            return 'unknown'
+        parts = hierarchy.split('/')
+        if len(parts) >= 2:
+            return parts[1]
+        return 'unknown'
+  
+  extract_service_name: |
+    def extract_service_name(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 'Unknown Service'
+        parts = operation_name.split('/')
+        if parts:
+            service_part = parts[0].upper()
+            if service_part.startswith('MICROSOFT.'):
+                return service_part.replace('MICROSOFT.', 'Microsoft ')
+            return service_part
+        return 'Unknown Service'
+  
+  extract_resource_type: |
+    def extract_resource_type(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 'Azure Resource'
+        parts = operation_name.split('/')
+        if len(parts) >= 2:
+            return '/'.join(parts[:2])
+        return 'Azure Resource'
+  
+  derive_activity_id: |
+    def derive_activity_id(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 99
+        op_upper = operation_name.upper()
+        if '/WRITE' in op_upper or 'CREATE' in op_upper or '/REGISTER' in op_upper:
+            return 1
+        elif '/READ' in op_upper or '/GET' in op_upper or '/LIST' in op_upper:
+            return 2
+        elif '/ACTION' in op_upper or '/UPDATE' in op_upper or '/MODIFY' in op_upper:
+            return 3
+        elif '/DELETE' in op_upper or '/REMOVE' in op_upper or '/UNREGISTER' in op_upper:
+            return 4
+        else:
+            return 99
+  
+  derive_activity_name: |
+    def derive_activity_name(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 'Other'
+        op_upper = operation_name.upper()
+        if '/WRITE' in op_upper or 'CREATE' in op_upper or '/REGISTER' in op_upper:
+            return 'Create'
+        elif '/READ' in op_upper or '/GET' in op_upper or '/LIST' in op_upper:
+            return 'Read'
+        elif '/ACTION' in op_upper or '/UPDATE' in op_upper or '/MODIFY' in op_upper:
+            return 'Update'
+        elif '/DELETE' in op_upper or '/REMOVE' in op_upper or '/UNREGISTER' in op_upper:
+            return 'Delete'
+        else:
+            return 'Other'
+  
+  extract_ip: |
+    def extract_ip(ip_string):
+        if not ip_string or not isinstance(ip_string, str):
+            return ''
+        ip_string = ip_string.strip()
+        if ':' in ip_string and not ip_string.startswith('['):
+            parts = ip_string.rsplit(':', 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                return parts[0]
+        return ip_string
+  
+  is_valid: |
+    def is_valid(ip_string):
+        if not ip_string or not isinstance(ip_string, str):
+            return False
+        ip_string = ip_string.strip()
+        if not ip_string or ip_string == '':
+            return False
+        return True
+  
+  format_uid: |
+    def format_uid(uid):
+        if not uid:
+            return 'unknown'
+        uid_str = str(uid).replace('-', '')
+        return uid_str
+  
+  status_code_to_int: |
+    def status_code_to_int(status_code):
+        if not status_code:
+            return 0
+        status_map = {
+            'OK': 200,
+            'Created': 201,
+            'Accepted': 202,
+            'NoContent': 204,
+            'BadRequest': 400,
+            'Unauthorized': 401,
+            'Forbidden': 403,
+            'NotFound': 404,
+            'Conflict': 409,
+            'InternalServerError': 500,
+            'ServiceUnavailable': 503
+        }
+        if isinstance(status_code, int):
+            return status_code
+        if isinstance(status_code, str):
+            if status_code.isdigit():
+                return int(status_code)
+            return status_map.get(status_code, 0)
+        return 0

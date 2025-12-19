@@ -218,21 +218,13 @@ class CloudTrailTransformer:
                     
                     self.logger.debug(f"Sending batch {current_batch_number} with {len(audit_events)} events to CloudTrail")
                     
-                    # Log event details for debugging
-                    self.logger.info(f"Batch {current_batch_number} event details:")
-                    for i, audit_event in enumerate(audit_events):
-                        self.logger.info(f"  Event {i+1} - id: {audit_event.get('id', 'MISSING')}")
-                        
-                        # Parse and log key eventData fields
-                        if audit_event.get('eventData'):
-                            try:
-                                event_data_obj = json.loads(audit_event['eventData'])
-                                self.logger.info(f"    eventTime: '{event_data_obj.get('eventTime', 'MISSING')}'")
-                                self.logger.info(f"    eventSource: '{event_data_obj.get('eventSource', 'MISSING')}'")
-                                self.logger.info(f"    eventName: '{event_data_obj.get('eventName', 'MISSING')}'")
-                                
-                            except Exception as parse_error:
-                                self.logger.error(f"    ERROR parsing eventData: {parse_error}")
+                    # Log consolidated event summary for debugging (single-line for CloudWatch compatibility)
+                    event_summary = ', '.join(
+                        f"id={e.get('id', 'MISSING')[:8]}..." for e in audit_events[:5]
+                    )
+                    if len(audit_events) > 5:
+                        event_summary += f" (+{len(audit_events) - 5} more)"
+                    self.logger.info(f"Batch {current_batch_number} events: [{event_summary}]")
                     
                     # Get the channel ARN for sending events
                     channel_arn = self._get_channel_arn()

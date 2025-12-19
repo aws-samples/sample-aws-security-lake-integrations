@@ -30,6 +30,7 @@ import { ProjectConfig } from './core/config-loader';
 import { ModuleLoader } from './core/module-loader';
 import { ModuleRegistry } from './core/module-registry';
 import { CoreResources } from './core/integration-module-interface';
+import * as path from 'path';
 
 export interface SecurityLakeStackProps extends cdk.StackProps {
   config: ProjectConfig;
@@ -401,33 +402,37 @@ export class SecurityLakeStack extends cdk.Stack {
     // Create custom resource Lambda
     const customResourceLambda = new lambda.Function(
       this,
-      'SecurityLakeCustomResourceLambda',
+      "SecurityLakeCustomResourceLambda",
       {
-        description: 'CloudFormation custom resource handler that creates Security Lake custom log sources and configures Lake Formation permissions',
+        description:
+          "CloudFormation custom resource handler that creates Security Lake custom log sources and configures Lake Formation permissions",
         runtime: lambda.Runtime.PYTHON_3_13,
-        handler: 'app.lambda_handler',
-        code: lambda.Code.fromAsset('src/lambda/security-lake-custom-resource', {
-          bundling: {
-            image: lambda.Runtime.PYTHON_3_13.bundlingImage,
-            command: [
-              'bash',
-              '-c',
-              [
-                'pip install -r requirements.txt -t /asset-output',
-                'cp -au . /asset-output',
-                'find /asset-output -name "*.pyc" -delete',
-                'find /asset-output -type d -name "__pycache__" | xargs rm -rf'
-              ].join(' && ')
-            ],
-            user: 'root'
+        handler: "app.lambda_handler",
+        code: lambda.Code.fromAsset(
+          "src/lambda/security-lake-custom-resource",
+          {
+            bundling: {
+              image: lambda.Runtime.PYTHON_3_13.bundlingImage,
+              command: [
+                "bash",
+                "-c",
+                [
+                  "pip install --no-cache-dir -r requirements.txt -t /asset-output",
+                  "cp -au . /asset-output",
+                  'find /asset-output -name "*.pyc" -delete',
+                  'find /asset-output -type d -name "__pycache__" | xargs rm -rf',
+                ].join(" && "),
+              ],
+              user: "root",
+            },
           }
-        }),
+        ),
         role: customResourceRole,
         timeout: cdk.Duration.seconds(60),
         memorySize: 256,
         environment: {
-          LOGGING_LEVEL: 'INFO'
-        }
+          LOGGING_LEVEL: "INFO",
+        },
       }
     );
 
@@ -561,6 +566,9 @@ export class SecurityLakeStack extends cdk.Stack {
       runtime: lambda.Runtime.PYTHON_3_13,
       handler: 'app.lambda_handler',
       architecture: lambda.Architecture.ARM_64,
+      layers: lambdaConfig.lambdaLayerArn
+        ? [lambda.LayerVersion.fromLayerVersionArn(this, 'EventTransformerAwsWranglerLayer', lambdaConfig.lambdaLayerArn)]
+        : [],
       code: lambda.Code.fromAsset('src/lambda/event-transformer', {
         bundling: {
           image: lambda.Runtime.PYTHON_3_13.bundlingImage,

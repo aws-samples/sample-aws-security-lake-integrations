@@ -1,0 +1,285 @@
+name: "azure_policy_activity_to_ocsf_compliance_finding"
+input_schema: "azure_policy_activity_logs"
+output_schema: "ocsf_compliance_finding_v110"
+
+# JSONPath extractors for Azure Policy Activity Logs
+extractors:
+  # Core timestamps
+  time: "$.event_data.time"
+  
+  # Policy operation details
+  operation_name: "$.event_data.operationName"
+  category: "$.event_data.category"
+  resource_id: "$.event_data.resourceId"
+  
+  # Result information
+  result_type: "$.event_data.resultType"
+  result_signature: "$.event_data.resultSignature"
+  duration_ms: "$.event_data.durationMs"
+  
+  # Caller information
+  caller_ip_address: "$.event_data.callerIpAddress"
+  
+  # Identity and authorization
+  principal_id: "$.event_data.identity.authorization.evidence.principalId"
+  principal_type: "$.event_data.identity.authorization.evidence.principalType"
+  role: "$.event_data.identity.authorization.evidence.role"
+  authorization_action: "$.event_data.identity.authorization.action"
+  authorization_scope: "$.event_data.identity.authorization.scope"
+  
+  # User claims
+  user_name: "$.event_data.identity.claims.name"
+  user_upn: '$.event_data.identity.claims["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn"]'
+  user_object_id: '$.event_data.identity.claims["http://schemas.microsoft.com/identity/claims/objectidentifier"]'
+  app_id: "$.event_data.identity.claims.appid"
+  
+  # Policy-specific fields
+  policies_json: "$.event_data.properties.policies"
+  is_compliance_check: "$.event_data.properties.isComplianceCheck"
+  deployment_id: "$.event_data.properties.deploymentId"
+  resource_location: "$.event_data.properties.resourceLocation"
+  entity: "$.event_data.properties.entity"
+  event_category: "$.event_data.properties.eventCategory"
+  message: "$.event_data.properties.message"
+  
+  # Tenant and correlation
+  tenant_id: "$.event_data.tenantId"
+  correlation_id: "$.event_data.correlationId"
+  level: "$.event_data.level"
+  role_location: "$.event_data.RoleLocation"
+
+# OCSF v1.1.0 Compliance Finding template (class_uid: 2003)
+template: |
+  {
+    "version": "1.1.0",
+    "class_uid": 2003,
+    "class_name": "Compliance Finding",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "activity_id": {{ extractors.operation_name | derive_policy_activity_id }},
+    "activity_name": "{{ extractors.operation_name | derive_policy_activity_name }}",
+    "type_uid": {{ 200300 + (extractors.operation_name | derive_policy_activity_id) }},
+    "type_name": "Compliance Finding: {{ extractors.operation_name | derive_policy_activity_name }}",
+    "time": {{ extractors.time | to_unix_timestamp_ms }},
+    "severity_id": {% if extractors.level == "Error" %}4{% elif extractors.level == "Warning" %}3{% elif extractors.level == "Information" %}1{% else %}1{% endif %},
+    "severity": "{% if extractors.level == "Error" %}High{% elif extractors.level == "Warning" %}Medium{% elif extractors.level == "Information" %}Informational{% else %}Informational{% endif %}",
+    "status": "{% if extractors.result_type == 'Success' or extractors.result_type == 'Succeeded' %}New{% elif extractors.result_type == 'Failure' or extractors.result_type == 'Failed' %}Suppressed{% else %}Other{% endif %}",
+    "status_id": {% if extractors.result_type == 'Success' or extractors.result_type == 'Succeeded' %}1{% elif extractors.result_type == 'Failure' or extractors.result_type == 'Failed' %}3{% else %}99{% endif %},
+    "status_code": "{{ extractors.result_signature | default('') }}",
+    "status_detail": "{{ extractors.result_type | default('') }}: {{ extractors.result_signature | default('') }}",
+    "message": "Azure Policy {{ extractors.operation_name | extract_policy_action }}: {{ extractors.message | default('Policy evaluation') | json_escape }}",
+    "metadata": {
+      "version": "1.1.0",
+      "product": {
+        "name": "Azure Policy",
+        "vendor_name": "Microsoft",
+        "feature": {
+          "name": "Policy Compliance"
+        }
+      },
+      "profiles": ["cloud", "datetime"],
+      "uid": "{{ extractors.correlation_id }}",
+      "correlation_uid": "{{ extractors.correlation_id }}",
+      "original_time": "{{ extractors.time }}"
+    },
+    "cloud": {
+      "provider": "Azure",
+      "account": {
+        "uid": "{{ extractors.resource_id | extract_subscription }}",
+        "type": "Azure Subscription",
+        "type_id": 10
+      },
+      "region": "{{ extractors.resource_location | default(extractors.role_location) | default('unknown') }}"
+    },
+    "finding_info": {
+      "uid": "{{ extractors.correlation_id }}",
+      "title": "Azure Policy Evaluation: {{ extractors.operation_name | extract_policy_action }}",
+      "desc": "{{ extractors.message | default('Policy compliance evaluation') | json_escape }}",
+      "created_time": {{ extractors.time | to_unix_timestamp_ms }},
+      "modified_time": {{ extractors.time | to_unix_timestamp_ms }},
+      "types": ["Azure Policy Compliance"]
+    },
+    "compliance": {
+      "requirements": {{ extractors.policies_json | parse_policy_requirements }},
+      "status": "{% if extractors.result_type == 'Success' or extractors.result_type == 'Succeeded' %}Pass{% elif extractors.result_type == 'Failure' or extractors.result_type == 'Failed' %}Fail{% else %}Other{% endif %}",
+      "status_detail": "{{ extractors.operation_name | extract_policy_action }}: {{ extractors.result_type | default('') }}"
+    },
+    "resources": {
+      "uid": "{{ extractors.resource_id | default(extractors.entity) | default('') }}",
+      "name": "{{ extractors.entity | extract_resource_name }}",
+      "type": "{{ extractors.resource_id | extract_resource_type }}",
+      "cloud_partition": "azure-commercial"
+    },
+    "actor": {
+      "user": {
+        "uid": "{{ extractors.principal_id | default(extractors.user_object_id) | format_uid }}",
+        "name": "{{ extractors.user_name | default('Azure Policy Service') | json_escape }}",
+        "email_addr": "{{ extractors.user_upn | default('') }}",
+        "type": "{{ extractors.principal_type | default('System') }}",
+        "type_id": {% if extractors.principal_type == 'User' %}1{% elif extractors.principal_type == 'ServicePrincipal' %}3{% else %}0{% endif %}
+      },
+      "idp": {
+        "uid": "{{ extractors.tenant_id }}"
+      },
+      "app_uid": "{{ extractors.app_id | default('') }}"
+    },
+    "src_endpoint": {
+      {% if extractors.caller_ip_address | extract_ip | is_valid %}"ip": "{{ extractors.caller_ip_address | extract_ip }}"{% else %}"ip": "0.0.0.0"{% endif %}
+    },
+    "unmapped": {
+      "is_compliance_check": "{{ extractors.is_compliance_check | default('') }}",
+      "deployment_id": "{{ extractors.deployment_id | default('') }}",
+      "authorization_action": "{{ extractors.authorization_action | default('') }}",
+      "authorization_scope": "{{ extractors.authorization_scope | default('') | json_escape }}",
+      "role": "{{ extractors.role | default('') }}",
+      "policies_raw": "{{ extractors.policies_json | default('') | json_escape }}",
+      "event_category": "{{ extractors.event_category | default('') }}"
+    }
+  }
+
+# Custom filters for policy activity transformation
+filters:
+  json_escape: |
+    def json_escape(text):
+        if not text or not isinstance(text, str):
+            return ''
+        import json
+        escaped = json.dumps(text)[1:-1]
+        return escaped
+  
+  to_unix_timestamp_ms: |
+    def to_unix_timestamp_ms(timestamp_str):
+        from datetime import datetime
+        if not timestamp_str:
+            return int(datetime.utcnow().timestamp() * 1000)
+        try:
+            if timestamp_str.endswith('Z'):
+                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or '-' in timestamp_str[-6:]:
+                dt = datetime.fromisoformat(timestamp_str)
+            else:
+                dt = datetime.fromisoformat(timestamp_str + '+00:00')
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return int(datetime.utcnow().timestamp() * 1000)
+  
+  extract_subscription: |
+    def extract_subscription(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'unknown'
+        parts = resource_id.upper().split('/')
+        for i, part in enumerate(parts):
+            if part == 'SUBSCRIPTIONS' and i + 1 < len(parts):
+                return parts[i + 1]
+        return 'unknown'
+  
+  extract_resource_name: |
+    def extract_resource_name(entity):
+        if not entity or not isinstance(entity, str):
+            return 'Unknown Resource'
+        parts = entity.split('/')
+        if parts:
+            return parts[-1]
+        return 'Unknown Resource'
+  
+  extract_resource_type: |
+    def extract_resource_type(resource_id):
+        if not resource_id or not isinstance(resource_id, str):
+            return 'Azure Resource'
+        parts = resource_id.upper().split('/')
+        for i, part in enumerate(parts):
+            if part == 'PROVIDERS' and i + 1 < len(parts):
+                provider = parts[i + 1]
+                if i + 2 < len(parts):
+                    return provider + '/' + parts[i + 2]
+                return provider
+        return 'Azure Resource'
+  
+  extract_policy_action: |
+    def extract_policy_action(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 'Policy Evaluation'
+        op_upper = operation_name.upper()
+        if 'AUDIT/ACTION' in op_upper:
+            return 'Audit'
+        elif 'AUDITIFNOTEXISTS/ACTION' in op_upper:
+            return 'AuditIfNotExists'
+        elif 'DEPLOYIFNOTEXISTS/ACTION' in op_upper:
+            return 'DeployIfNotExists'
+        elif 'DENY/ACTION' in op_upper:
+            return 'Deny'
+        else:
+            return 'Policy Evaluation'
+  
+  derive_policy_activity_id: |
+    def derive_policy_activity_id(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 99
+        op_upper = operation_name.upper()
+        if 'AUDIT' in op_upper:
+            return 1
+        elif 'DEPLOY' in op_upper:
+            return 2
+        elif 'DENY' in op_upper:
+            return 3
+        else:
+            return 99
+  
+  derive_policy_activity_name: |
+    def derive_policy_activity_name(operation_name):
+        if not operation_name or not isinstance(operation_name, str):
+            return 'Other'
+        op_upper = operation_name.upper()
+        if 'AUDIT' in op_upper:
+            return 'Audit'
+        elif 'DEPLOY' in op_upper:
+            return 'Deploy'
+        elif 'DENY' in op_upper:
+            return 'Deny'
+        else:
+            return 'Other'
+  
+  parse_policy_requirements: |
+    def parse_policy_requirements(policies_json):
+        if not policies_json or not isinstance(policies_json, str):
+            return '[]'
+        import json
+        try:
+            policies = json.loads(policies_json)
+            if not isinstance(policies, list):
+                return '[]'
+            requirements = []
+            for policy in policies:
+                if isinstance(policy, dict):
+                    requirement = policy.get('policyDefinitionDisplayName', policy.get('policyDefinitionName', 'Unknown Policy'))
+                    requirements.append(requirement)
+            return json.dumps(requirements)
+        except Exception:
+            return '[]'
+  
+  extract_ip: |
+    def extract_ip(ip_string):
+        if not ip_string or not isinstance(ip_string, str):
+            return ''
+        ip_string = ip_string.strip()
+        if ':' in ip_string and not ip_string.startswith('['):
+            parts = ip_string.rsplit(':', 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                return parts[0]
+        return ip_string
+  
+  is_valid: |
+    def is_valid(ip_string):
+        if not ip_string or not isinstance(ip_string, str):
+            return False
+        ip_string = ip_string.strip()
+        if not ip_string or ip_string == '':
+            return False
+        return True
+  
+  format_uid: |
+    def format_uid(uid):
+        if not uid:
+            return 'unknown'
+        uid_str = str(uid).replace('-', '')
+        return uid_str

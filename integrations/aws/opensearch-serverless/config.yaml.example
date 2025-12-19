@@ -1,0 +1,627 @@
+# © 2025 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
+################################################################################
+# OpenSearch Serverless Collection Configuration Template
+################################################################################
+#
+# This configuration file defines the settings for deploying an OpenSearch
+# Serverless collection optimized for time-series data (e.g., security logs,
+# metrics, events, telemetry data).
+#
+# COLLECTION TYPE: TIMESERIES
+# - Optimized for sequential time-stamped data with high ingestion rates
+# - Automatically enables standby replicas for high availability
+# - Best suited for log analytics, security events, and observability data
+#
+# NETWORK ACCESS: PUBLIC (Default)
+# - OpenSearch Dashboards accessible via HTTPS URL
+# - Collection endpoint accessible for ingestion and queries
+# - IMPORTANT: Data access still requires IAM authentication
+# - Consider VPC access policies for additional network isolation
+#
+# BEFORE DEPLOYMENT:
+# 1. Copy this file to config.yaml in the same directory
+# 2. Update all placeholder values (especially AWS account IDs and regions)
+# 3. Configure at least one data access principal ARN
+# 4. Choose your encryption mode (see Encryption Configuration section)
+# 5. Review and customize tags for your organization
+#
+# DEPLOYMENT COMMANDS:
+# Run from integrations/aws/opensearch-serverless/ directory:
+#   npm install
+#   npm run build
+#   cdk synth -c configFile=config.yaml
+#   cdk deploy -c configFile=config.yaml
+#
+# CONFIGURATION FILE SECURITY:
+# - config.yaml is automatically excluded from version control (.gitignore)
+# - Do NOT commit config.yaml with actual AWS account IDs or ARNs
+# - Use this .example file as a template only
+#
+# AWS DOCUMENTATION:
+# - OpenSearch Serverless: https://docs.aws.amazon.com/opensearch-service/latest/developerguide/serverless.html
+# - TIMESERIES collections: https://docs.aws.amazon.com/opensearch-service/latest/developerguide/serverless-overview.html#serverless-usecase-timeseries
+# - Data access policies: https://docs.aws.amazon.com/opensearch-service/latest/developerguide/serverless-data-access.html
+#
+################################################################################
+
+################################################################################
+# PROJECT CONFIGURATION
+################################################################################
+# Defines the CloudFormation stack identity and deployment region
+
+# Stack name - used for CloudFormation stack identification
+# Format: alphanumeric characters and hyphens only
+# Example for production: "prod-opensearch-serverless"
+# Example for development: "dev-opensearch-serverless"
+projectName: opensearch-serverless-example
+
+# Environment identifier - helps organize resources by deployment stage
+# Common values: dev, test, staging, prod
+# Used for resource tagging and naming conventions
+environment: dev
+
+# AWS region for deployment
+# Must match the region where your data sources are located for optimal performance
+# Common regions: us-east-1, us-west-2, eu-west-1, ap-southeast-1, ca-central-1
+awsRegion: us-east-1
+
+################################################################################
+# RESOURCE TAGS
+################################################################################
+# Tags are applied to all resources created by this stack
+# Used for cost allocation, resource organization, and automation
+#
+# COMMON TAG STRATEGIES:
+# - Cost allocation: CostCenter, Project, Owner
+# - Environment identification: Environment, Stage, Version
+# - Security/compliance: DataClassification, ComplianceScope
+# - Operational: ManagedBy, BackupPolicy, MaintenanceWindow
+
+# Source identifier for tracking deployment origin
+tagSource: aws-delivery-kits
+
+# Product identifier for resource grouping
+tagProduct: security-lake-integrations
+
+# Version identifier for deployment tracking
+tagKitVersion: 1.0.0
+
+################################################################################
+# COLLECTION CONFIGURATION
+################################################################################
+# Defines the OpenSearch Serverless collection settings
+collection:
+  # Collection name - unique identifier within your AWS account and region
+  # NAMING CONSTRAINTS:
+  # - Must be between 3 and 28 characters
+  # - Can only contain lowercase letters, numbers, and hyphens
+  # - Must start with a lowercase letter
+  # - Cannot end with a hyphen
+  # - Cannot contain two consecutive hyphens
+  # 
+  # EXAMPLES BY USE CASE:
+  # - Security logs: "security-events-collection"
+  # - Application logs: "app-logs-prod"
+  # - Metrics/monitoring: "metrics-timeseries"
+  # - Audit logs: "audit-trail-data"
+  name: security-data-collection
+  
+  # Collection type - determines optimization for data patterns
+  # Options:
+  # - TIMESERIES: Optimized for time-stamped data (logs, metrics, events)
+  # - SEARCH: Optimized for search workloads (full-text search)
+  # - VECTORSEARCH: Optimized for vector similarity search
+  type: TIMESERIES
+  
+  # Collection description (Optional)
+  # Helps document the purpose and contents of the collection
+  # Visible in OpenSearch Serverless console
+  description: Time series collection for security event data from multiple sources
+  
+  # Standby replicas configuration for high availability
+  # Options:
+  # - ENABLED: Creates standby replicas across availability zones (recommended for production)
+  # - DISABLED: Single availability zone deployment (lower cost, reduced availability)
+  standbyReplicas: ENABLED
+
+################################################################################
+# OPENSEARCH APPLICATION (UI) CONFIGURATION (Optional)
+################################################################################
+# Creates an OpenSearch Application that provides a unified UI for interacting
+# with your OpenSearch Serverless collection. The application provides:
+# - A simplified search and exploration interface
+# - Integration with IAM and IAM Identity Center for authentication
+# - Automatic connection to your OpenSearch Serverless collection as a data source
+#
+# Use Case: Provide end users with a streamlined interface to query and explore
+# security data without needing direct OpenSearch Dashboards access.
+#
+# AUTHENTICATION MODES:
+# 1. IAM Only (Default): Use IAM principals for authentication
+# 2. IAM Identity Center: Enable SSO authentication via IAM Identity Center
+#
+# PREREQUISITES:
+# - OpenSearch Serverless collection must be created first (automatic dependency)
+# - At least one IAM principal must be configured as an administrator
+# - If using IAM Identity Center, it must be enabled in your AWS account
+
+application:
+  # Enable/disable application creation
+  enabled: true
+  
+  # Application name - unique identifier within your AWS account and region
+  # NAMING CONSTRAINTS:
+  # - Must be between 3 and 30 characters
+  # - Can only contain lowercase letters, numbers, and hyphens
+  # - Must start with a lowercase letter
+  # - Cannot end with a hyphen
+  # - Cannot contain two consecutive hyphens
+  name: "security-lake-app"
+  
+  # IAM Identity Center integration (optional)
+  # Enable this to allow users to sign in via IAM Identity Center (SSO)
+  # When disabled (default), only IAM authentication is supported
+  iamIdentityCenter:
+    # Enable IAM Identity Center authentication
+    enabled: false
+    
+    # IAM Identity Center instance ARN (required when enabled: true)
+    # Format: arn:aws:sso:::instance/ssoins-xxxxxxxxxxxxx
+    # Get this from: IAM Identity Center console > Settings > Instance ARN
+    # instanceArn: "arn:aws:sso:::instance/ssoins-xxxxxxxxxxxxx"
+    
+    # IAM role ARN for Identity Center integration (required when enabled: true)
+    # This role must have permissions to assume Identity Center operations
+    # roleArn: "arn:aws:iam::123456789012:role/OpenSearchApplicationRole"
+  
+  # Administrator configuration (REQUIRED when application is enabled)
+  # At least one IAM principal must be configured as an administrator
+  admins:
+    # List of IAM principal ARNs that can administer the application
+    # These principals can manage the application and access all data sources
+    # Supported formats:
+    # - IAM Role: arn:aws:iam::123456789012:role/RoleName
+    # - IAM User: arn:aws:iam::123456789012:user/UserName
+    # - Wildcard: "*" (all users - use only for initial deployment)
+    iamPrincipals:
+      - "*"  # Must be set to all users for initial deployment
+  
+  # Data source configuration
+  # Controls how the OpenSearch Serverless collection is connected to the application
+  dataSource:
+    # Automatically add the collection as a data source (default: true)
+    # When true, the collection created by this stack is automatically connected
+    autoAddCollection: true
+    
+    # Description for the data source (optional)
+    # Helps users understand what data is available
+    description: "Security Lake data collection"
+
+################################################################################
+# OPENSEARCH WORKSPACES CONFIGURATION (Optional)
+################################################################################
+# Creates organized workspaces within OpenSearch Dashboards for grouping
+# saved objects, index patterns, and visualizations by team or use case.
+#
+# WHAT ARE WORKSPACES?
+# - Logical containers within OpenSearch Dashboards
+# - Separate saved objects (dashboards, visualizations, index patterns) by team/project
+# - Control access with fine-grained permissions (read/write for users and groups)
+# - Associate specific data sources with specific workspaces
+#
+# USE CASES:
+# - Security Operations Center (SOC): Dedicated workspace with security dashboards
+# - Development Team: Workspace for application log analysis
+# - Compliance Team: Workspace for audit and compliance visualizations
+# - Network Team: VPC flow logs and network monitoring workspace
+
+workspaces:
+  # Enable/disable workspace creation
+  enabled: true
+  
+  # Array of workspace definitions (each creates a CloudFormation custom resource)
+  workspaces:
+    - name: "security-operations"
+      description: "SOC workspace for threat detection"
+      
+      # Workspace color for visual identification
+      # Common options:
+      #   #E74C3C (Red - Security/Alerts)
+      #   #3498DB (Blue - Network/Monitoring)
+      #   #27AE60 (Green - Compliance/Success)
+      #   #9B59B6 (Purple - Analytics)
+      #   #F39C12 (Orange - Warnings)
+      #   #1ABC9C (Teal - Operations)
+      #   #34495E (Dark Gray - General)
+      color: "#E74C3C"
+      
+      # Feature to enable for this workspace (singular)
+      # Available values:
+      # - "use-case-observability": Metrics, logs, traces visualization
+      # - "use-case-search": Search and explore functionality
+      # - "use-case-security-analytics": Security-focused analytics
+      # - "use-case-essentials": Basic essential features
+      # - "use-case-all": All available features
+      feature: "use-case-observability"
+
+################################################################################
+# ENCRYPTION CONFIGURATION
+################################################################################
+# OpenSearch Serverless supports three encryption-at-rest modes:
+#
+# MODE 1: AWS-OWNED KEY (Default - Recommended for most use cases)
+# - Managed entirely by AWS OpenSearch Serverless
+# - No additional cost
+# - No key management required
+# - USAGE: Set enabled: false or omit encryption section
+#
+# MODE 2: EXISTING CUSTOMER MANAGED KEY (CMK)
+# - Use a KMS key you already created
+# - Allows key rotation and access logging
+# - Additional KMS costs apply
+# - USAGE: Set existingKeyArn with your KMS key ARN
+# - REQUIREMENT: KMS key must exist before deployment
+# - REQUIREMENT: Key policy must allow OpenSearch Serverless service principal access
+#
+# MODE 3: NEW SHARED KEY (CDK-managed CMK)
+# - CDK creates a new KMS key for this collection
+# - Automatic key policy configuration
+# - Automatic CloudFormation lifecycle management
+# - Additional KMS costs apply
+# - USAGE: Set useSharedKey: true
+#
+# KEY SHARING: When useSharedKey is true, the created KMS key can be shared
+# with other resources (e.g., Kinesis Data Stream) for simplified key management
+# and reduced costs. See kinesis.encryption.useSharedKey below.
+
+encryption:
+  # Enable/disable encryption at rest
+  enabled: true
+  
+  # Create a new KMS key managed by this CDK stack
+  # When true, a shared KMS key is created and can be used by other resources
+  useSharedKey: true
+  
+  # Use an existing KMS key (alternative to useSharedKey)
+  # Replace with your actual KMS key ARN:
+  # existingKeyArn: "KMS_KEY_ARN"
+
+################################################################################
+# NETWORK CONFIGURATION
+################################################################################
+# Defines network access settings for the OpenSearch Serverless collection
+#
+# ACCESS TYPES:
+# - Public: Accessible via public endpoint (requires IAM authentication)
+# - VPC: Accessible only from within specified VPCs (additional security)
+
+network:
+  # Access type for the collection
+  # Options: Public, VPC
+  accessType: Public
+  
+  # Allow access from public networks
+  # When true, the collection endpoint is publicly accessible
+  # Authentication is still required via IAM
+  allowFromPublic: true
+
+################################################################################
+# DATA ACCESS CONFIGURATION
+################################################################################
+# Defines IAM principals that can access the collection data
+#
+# CRITICAL REQUIREMENT:
+# You MUST specify at least one principal ARN or the collection will be
+# inaccessible for data operations (indexing, searching, dashboard access).
+#
+# PRINCIPAL ARN FORMATS:
+#
+# 1. IAM Role ARN:
+#    arn:aws:iam::123456789012:role/RoleName
+#    - Use for: Applications, Lambda functions, EC2 instances
+#
+# 2. IAM User ARN:
+#    arn:aws:iam::123456789012:user/UserName
+#    - Use for: Individual users, service accounts
+#
+# 3. Assumed Role ARN (with wildcard):
+#    arn:aws:sts::123456789012:assumed-role/RoleName/*
+#    - Use for: Any session from a specific role
+#
+# SECURITY BEST PRACTICES:
+# - Follow principle of least privilege
+# - Use role ARNs instead of user ARNs when possible
+# - Regularly audit and remove unused principals
+
+dataAccess:
+  principals:
+    # Example: Admin assumed role with wildcard
+    # Allows any user who assumes the AdminRole to access the collection
+    - arn:aws:sts::123456789012:assumed-role/Admin/*
+  
+  # Permissions granted to principals
+  # Common permissions:
+  # - aoss:* (all OpenSearch Serverless operations)
+  # - aoss:ReadDocument (read-only access)
+  # - aoss:WriteDocument (write access)
+  permissions:
+    - aoss:*
+
+################################################################################
+# SECURITY LAKE PIPELINE CONFIGURATION (Optional)
+################################################################################
+# OpenSearch Ingestion pipeline for AWS Security Lake OCSF data
+# This pipeline reads Parquet files from Security Lake S3 buckets via SQS notifications
+#
+# Data Flow:
+# Security Lake S3 -> SQS Queue (EventBridge) -> OSI Pipeline -> OpenSearch Serverless
+#
+# Use Case: Ingest and analyze security findings, CloudTrail logs, VPC Flow Logs,
+# and other security data from AWS Security Lake in OCSF format.
+
+securityLakePipeline:
+  # SQS Queue URL from Security Lake
+  # This is the main queue that receives S3 event notifications from Security Lake
+  # REQUIRED: Get this from your Security Lake configuration
+  # Format: https://sqs.{region}.amazonaws.com/{account-id}/{queue-name}
+  queueUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/AmazonSecurityLake-xxx-Main-Queue"
+
+################################################################################
+# KINESIS DATA STREAM CONFIGURATION (Optional)
+################################################################################
+# Kinesis Data Stream for receiving CloudWatch Logs data
+# IMPORTANT: This is optional. Only configure if you need to ingest CloudWatch Logs
+# into OpenSearch Serverless via a Kinesis stream.
+#
+# Use Case: CloudWatch Logs subscription filters can send log data to Kinesis,
+# which can then be processed and ingested into OpenSearch Serverless using
+# OpenSearch Ingestion (OSI) pipelines or Lambda functions.
+
+kinesis:
+  # Stream name - must be unique within your AWS account and region
+  # Naming convention: Use descriptive names like "cloudwatch-logs-opensearch"
+  streamName: cloudwatch-logs-opensearch
+  
+  # Stream capacity mode - choose based on traffic patterns
+  # Options:
+  #   - ON_DEMAND: Auto-scales based on throughput (recommended for variable loads)
+  #   - PROVISIONED: Fixed capacity with explicit shard count (cost predictable)
+  streamMode: ON_DEMAND
+  
+  # Data retention period in hours (24-8760 hours, i.e., 1 hour to 365 days)
+  # Cost consideration: Longer retention increases storage costs
+  # Best practice: Match retention to your data processing SLAs
+  retentionPeriodHours: 24
+  
+  # Kinesis stream encryption settings
+  encryption:
+    # Enable/disable encryption for this Kinesis stream
+    enabled: true
+    
+    # Use the shared KMS key created for this stack
+    # When true, uses the same KMS key as OpenSearch Serverless collection
+    # Benefits: Simplified key management, reduced costs
+    # NOTE: Global encryption.useSharedKey must be true to create the shared key
+    useSharedKey: true
+
+################################################################################
+# OPENSEARCH INGESTION PIPELINE CONFIGURATION (Optional)
+################################################################################
+# OpenSearch Ingestion (OSI) pipeline for CloudWatch Logs via Kinesis
+#
+# Use Case: Ingest CloudWatch Logs data from Kinesis Data Stream into
+# OpenSearch Serverless for log analytics and visualization
+#
+# To enable this pipeline:
+# 1. Ensure kinesis section above is configured
+# 2. Set enabled: true below
+# 3. Deploy stack - pipeline will automatically connect to Kinesis and OpenSearch
+
+pipeline:
+  # Enable or disable the pipeline
+  enabled: true
+  
+  # Pipeline name - unique identifier
+  pipelineName: cloudwatch-kinesis-opensearch
+  
+  # Minimum pipeline capacity in OCUs (OpenSearch Compute Units)
+  # Each OCU: 6 GB memory + 2 vCPUs
+  # Range: 1-96 OCUs
+  minCapacity: 2
+  
+  # Maximum pipeline capacity for auto-scaling
+  maxCapacity: 4
+  
+  # Log group pattern for filtering CloudWatch Logs
+  # Use '.*' to match all log groups
+  logGroupPattern: '.*'
+  
+  # Dead Letter Queue (DLQ) bucket configuration
+  # Failed records are written to this S3 bucket for later analysis
+  dlqBucket:
+    # Enable/disable DLQ bucket creation
+    enabled: true
+    
+    # Lifecycle retention for DLQ objects in days
+    # Objects older than this will be automatically deleted
+    lifecycleRetentionDays: 2
+    
+    # DLQ bucket encryption settings
+    encryption:
+      # Use the shared KMS key for DLQ bucket encryption
+      useSharedKey: true
+
+################################################################################
+# SAVED OBJECTS IMPORT CONFIGURATION (Optional)
+################################################################################
+# Import OpenSearch Saved Objects (index patterns, visualizations, dashboards)
+# from NDJSON files during deployment. Files must be placed in the assets/
+# directory and have .ndjson extension.
+#
+# A Lambda function will be created to handle the import process. Each import
+# is processed sequentially to ensure dependencies (e.g., index patterns must
+# exist before dashboards that reference them).
+#
+# HOW IT WORKS:
+# 1. Place your NDJSON export files in the assets/ directory
+# 2. Configure the imports array below with your files
+# 3. During CDK deployment, a CloudFormation custom resource is created for each
+# 4. A Lambda function processes each import using the OpenSearch _bulk API
+# 5. Imports are processed in the order specified (important for dependencies)
+#
+# IMPORT ORDER CONSIDERATIONS:
+# - Index patterns should be imported FIRST (dashboards may reference them)
+# - Visualizations should be imported BEFORE dashboards that use them
+# - Search objects should be imported BEFORE visualizations that use them
+
+savedObjects:
+  # Enable/disable saved objects import
+  enabled: true
+  
+  # Array of saved objects to import (processed in order)
+  # Each entry creates a CloudFormation custom resource
+  # CRITICAL: Order matters - import dependencies first
+  imports:
+    # Index patterns should be imported first as dashboards may reference them
+    - name: "indexpatterns"
+      file: "index-patterns.ndjson"
+      overwrite: true
+    
+    # Log processing dashboards and visualizations
+    - name: "logProcessing"
+      file: "log-processing.ndjson"
+      overwrite: true
+    
+    # Cloud API audit dashboards
+    - name: "cloudApiAudit"
+      file: "cloud-api-audit.ndjson"
+      overwrite: true
+    
+    # External workload logs dashboards
+    - name: "externalWorkloadLogs"
+      file: "external-workload-logs.ndjson"
+      overwrite: true
+    
+    # AWS workload logs dashboards
+    - name: "awsWorkloadLogs"
+      file: "aws-workload-logs.ndjson"
+      overwrite: true
+    
+    # Flow logs dashboards
+    - name: "flowlogs"
+      file: "flowlogs.ndjson"
+      overwrite: true
+    
+    # Detections and alerts dashboards
+    - name: "detectionsAlerts"
+      file: "detections-alerts.ndjson"
+      overwrite: true
+
+################################################################################
+# DEPLOYMENT VALIDATION CHECKLIST
+################################################################################
+#
+# Before running 'cdk deploy', verify:
+#
+# [ ] Copied this file to config.yaml
+# [ ] Updated projectName to match your naming convention
+# [ ] Set awsRegion to your target AWS region
+# [ ] Configured collection.name following naming constraints
+# [ ] Added at least one principal ARN to dataAccess.principals
+# [ ] Chose encryption mode (or left as default AWS-owned key)
+# [ ] If using existingKeyArn: Verified KMS key exists and has correct policy
+# [ ] Updated tags to match your organization's tagging strategy
+# [ ] Reviewed network access implications (collection is publicly accessible)
+# [ ] Confirmed IAM principals have required permissions (aoss:APIAccessAll)
+#
+# AFTER DEPLOYMENT:
+# [ ] Note the collection endpoint from CDK outputs
+# [ ] Note the OpenSearch Dashboards URL from CDK outputs
+# [ ] Test data ingestion with your application
+# [ ] Verify dashboards access with your IAM principal
+# [ ] Configure monitoring and alerting for the collection
+# [ ] Document the collection URL and access procedures for your team
+#
+################################################################################
+
+################################################################################
+# EXAMPLE CONFIGURATIONS FOR DIFFERENT SCENARIOS
+################################################################################
+#
+# SCENARIO 1: Development Environment (Minimal Cost)
+# --------------------------------------------------
+# projectName: dev-opensearch-test
+# environment: dev
+# awsRegion: us-east-1
+# tagSource: aws-delivery-kits
+# tagProduct: security-lake-integrations
+# tagKitVersion: 1.0.0
+#
+# collection:
+#   name: dev-test-collection
+#   type: TIMESERIES
+#   standbyReplicas: DISABLED  # Lower cost for dev
+#
+# encryption:
+#   enabled: false  # Use AWS-owned key (no cost)
+#
+# dataAccess:
+#   principals:
+#     - arn:aws:iam::123456789012:root  # Allow all account principals
+#   permissions:
+#     - aoss:*
+#
+#
+# SCENARIO 2: Production Security Logs (High Security)
+# -----------------------------------------------------
+# projectName: prod-security-logs
+# environment: prod
+# awsRegion: us-east-1
+# tagSource: aws-delivery-kits
+# tagProduct: security-lake-integrations
+# tagKitVersion: 1.0.0
+#
+# collection:
+#   name: security-events-prod
+#   type: TIMESERIES
+#   description: Production security event logs with SIEM integration
+#   standbyReplicas: ENABLED
+#
+# encryption:
+#   enabled: true
+#   useSharedKey: true  # Customer managed key for compliance
+#
+# dataAccess:
+#   principals:
+#     - arn:aws:iam::123456789012:role/SIEMIngestionRole
+#     - arn:aws:iam::123456789012:role/SOCAnalystRole
+#     - arn:aws:iam::123456789012:role/SecurityAutomationRole
+#   permissions:
+#     - aoss:*
+#
+#
+# SCENARIO 3: Multi-Team Workspaces
+# ---------------------------------
+# workspaces:
+#   enabled: true
+#   workspaces:
+#     - name: "soc-team"
+#       description: "Security Operations Center"
+#       color: "#E74C3C"
+#       feature: "use-case-security-analytics"
+#
+#     - name: "network-team"
+#       description: "Network Operations"
+#       color: "#3498DB"
+#       feature: "use-case-observability"
+#
+#     - name: "compliance"
+#       description: "Audit and Compliance"
+#       color: "#27AE60"
+#       feature: "use-case-search"
+#
+################################################################################

@@ -17,7 +17,7 @@ from uuid import uuid4
 import boto3
 from botocore.exceptions import ClientError
 
-# Import numpy for array handling
+# Import numpy for array handling (awswrangler may use it internally)
 try:
     import numpy as np
     NUMPY_AVAILABLE = True
@@ -27,24 +27,26 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Parquet support for Security Lake compliance using PyArrow
-# Using PyArrow's JSON reader (not from_pylist) to avoid element-wrapping bug
+# Parquet support for Security Lake compliance using AWS Wrangler
+# AWS Wrangler provides higher-level abstractions for AWS services
+# and handles array serialization correctly when used with proper dtype settings
+# AWS Wrangler provided by Lambda Layer (not in requirements.txt to avoid bundling)
 try:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+    import awswrangler as wr
+    import pandas as pd
     PARQUET_AVAILABLE = True
-    logger.info(f"[PYARROW IMPORT] SUCCESS: pyarrow version {pa.__version__} loaded successfully")
+    logger.info(f"[AWSWRANGLER IMPORT] SUCCESS: awswrangler loaded successfully")
 except ImportError as e:
     PARQUET_AVAILABLE = False
-    pa = None
-    pq = None
-    logger.error(f"[PYARROW IMPORT] FAILED: {str(e)}")
+    wr = None
+    pd = None
+    logger.error(f"[AWSWRANGLER IMPORT] FAILED: {str(e)}")
     quit()
 except Exception as e:
     PARQUET_AVAILABLE = False
-    pa = None
-    pq = None
-    logger.error(f"[PYARROW IMPORT] UNEXPECTED ERROR: {str(e)}")
+    wr = None
+    pd = None
+    logger.error(f"[AWSWRANGLER IMPORT] UNEXPECTED ERROR: {str(e)}")
     quit()
 
 
@@ -70,7 +72,7 @@ class SecurityLakeClient:
         
         logger.info(f"Initialized Security Lake client for bucket: {s3_bucket}")
         logger.info(f"S3 path prefix: {self.s3_path or '(root)'}")
-        logger.info(f"Using PyArrow JSON reader for Parquet generation (avoids from_pylist element-wrapping bug)")
+        logger.info("Now using AWS Wrangler for Parquet generation (better AWS integration and array handling)")
         
     def validate_configuration(self) -> bool:
         """
@@ -199,26 +201,8 @@ class SecurityLakeClient:
             timestamp = datetime.now(timezone.utc)
             s3_key = self._generate_s3_key(source_name, event_class, timestamp, region, account_id)
             
-            # Create Parquet buffer using PyArrow
-            parquet_buffer = self._create_parquet_buffer(events, event_class)
-            
-            # Upload Parquet file to S3
-            self.s3_client.put_object(
-                Bucket=self.s3_bucket,
-                Key=s3_key,
-                Body=parquet_buffer,
-                ContentType='application/octet-stream',
-                Metadata={
-                    'source': source_name,
-                    'event_class': event_class,
-                    'event_count': str(len(events)),
-                    'ocsf_version': '1.1.0',
-                    'format': 'parquet',
-                    'compression': 'snappy',
-                    'created_by': 'microsoft-defender-integration',
-                    'parquet_engine': 'pyarrow-json-reader'
-                }
-            )
+            # Write Parquet file directly to S3 using AWS Wrangler
+            self._write_parquet_to_s3(events, event_class, s3_key, source_name)
             
             logger.info(f"Successfully sent {len(events)} {event_class} events to Security Lake as Parquet at {s3_key}")
             
@@ -228,100 +212,81 @@ class SecurityLakeClient:
             logger.error(f"Failed to create Parquet file for {event_class} events: {str(e)}")
             return {'successful': 0, 'failed': len(events)}
     
-    def _create_parquet_buffer(self, events: List[Dict[str, Any]], event_class: str) -> bytes:
+    def _write_parquet_to_s3(self, events: List[Dict[str, Any]], event_class: str, s3_key: str, source_name: str) -> None:
         """
-        Create Apache Parquet buffer using PyArrow's from_pylist method
+        Write events directly to S3 as Parquet using AWS Wrangler
         
-        Uses PyArrow's Table.from_pylist() to convert cleaned Python dictionaries
-        directly to Parquet format with proper nested structures for OCSF events.
-        Events are cleaned to remove empty dicts/lists and normalize field names
-        before conversion to ensure Parquet compatibility.
+        AWS Wrangler and pandas will handle array/list fields naturally, converting them
+        to proper Parquet list types. No pre-serialization needed.
         
         Args:
             events: List of template-generated OCSF events (same event class)
             event_class: OCSF event class name
-            
-        Returns:
-            Parquet file as bytes buffer
+            s3_key: Full S3 key path for the Parquet file
+            source_name: Source name for metadata
         """
         try:
-            logger.debug(f"[PYARROW DEBUG] Starting _create_parquet_buffer with {len(events)} events for class: {event_class}")
+            logger.debug(f"[AWSWRANGLER] Starting _write_parquet_to_s3 with {len(events)} events for class: {event_class}")
             
             # Clean events to remove empty dicts/lists and problematic fields
-            cleaned_events = [self._clean_event_for_pyarrow(event) for event in events]
-            logger.debug(f"[PYARROW DEBUG] Cleaned {len(cleaned_events)} events")
+            cleaned_events = [self._clean_event_for_awswrangler(event) for event in events]
+            logger.debug(f"[AWSWRANGLER] Cleaned {len(cleaned_events)} events")
             
-            if pa is None or pq is None:
-                raise Exception(f"PyArrow modules are None - PARQUET_AVAILABLE={PARQUET_AVAILABLE}")
+            if wr is None or pd is None:
+                raise Exception(f"AWS Wrangler modules are None - PARQUET_AVAILABLE={PARQUET_AVAILABLE}")
             
-            # Convert any numpy arrays back to plain Python lists
-            # Ensures arrays are stored as simple lists, not numpy array types
-            if NUMPY_AVAILABLE and np is not None:
-                def denumpyify(obj):
-                    """Recursively convert numpy arrays to Python lists"""
-                    if isinstance(obj, np.ndarray):
-                        return obj.tolist()
-                    elif isinstance(obj, dict):
-                        return {k: denumpyify(v) for k, v in obj.items()}
-                    elif isinstance(obj, list):
-                        return [denumpyify(item) for item in obj]
-                    else:
-                        return obj
-                
-                cleaned_events = [denumpyify(event) for event in cleaned_events]
-                logger.debug(f"[PYARROW DEBUG] Converted numpy arrays to Python lists")
-            else:
-                logger.debug(f"[PYARROW DEBUG] numpy not available, skipping array conversion")
+            # Convert events to pandas DataFrame
+            # Arrays remain as Python lists - pandas/awswrangler will handle them naturally
+            df = pd.DataFrame.from_records(cleaned_events)
+            logger.debug(f"[AWSWRANGLER] Created pandas DataFrame with {len(df)} rows and {len(df.columns)} columns")
             
-            # Use PyArrow's from_pylist to create nested structure
-            # This creates proper Parquet nested columns with:
-            #   Column NAME = leaf field (e.g., "provider")
-            #   Column PATH = full hierarchy (e.g., "cloud.provider")
+            # Remove columns with only empty structs (PyArrow cannot serialize empty struct types)
+            df = self._remove_empty_struct_columns(df)
+            logger.debug(f"[AWSWRANGLER] After removing empty structs: {len(df)} rows and {len(df.columns)} columns")
             
-            table = pa.Table.from_pylist(cleaned_events)
+            # Build full S3 path
+            s3_path = f"s3://{self.s3_bucket}/{s3_key}"
             
-            logger.debug(f"[PYARROW DEBUG] Created PyArrow Table with {table.num_rows} rows and {table.num_columns} columns")
-            logger.debug(f"[PYARROW DEBUG] Table will have nested column paths (e.g., cloud.provider)")
-            
-            # Create in-memory buffer
-            buffer = io.BytesIO()
-            
-            # Write to Parquet with GZIP compression
-            pq.write_table(
-                table,
-                buffer,
-                compression='gzip',
-                use_dictionary=True,
-                write_statistics=True
+            # Write DataFrame to S3 as Parquet using AWS Wrangler
+            # AWS Wrangler handles array serialization to proper Parquet list types
+            wr.s3.to_parquet(
+                df=df,
+                path=s3_path,
+                index=False,
+                dataset=True,
+                compression='snappy',
+                boto3_session=None,  # Uses default session
+                s3_additional_kwargs={
+                    'Metadata': {
+                        'source': source_name,
+                        'event_class': event_class,
+                        'event_count': str(len(events)),
+                        'ocsf_version': '1.1.0',
+                        'format': 'parquet',
+                        'compression': 'snappy',
+                        'created_by': 'EventTransformer',
+                        'parquet_engine': 'awswrangler'  # Using AWS Wrangler for array handling
+                    }
+                }
             )
             
-            # Get buffer contents
-            parquet_data = buffer.getvalue()
-            buffer.close()
-            
-            # Verify size constraints
-            parquet_size_mb = len(parquet_data) / (1024 * 1024)
-            if parquet_size_mb > 256:
-                logger.warning(f"Parquet file size ({parquet_size_mb:.1f}MB) exceeds Security Lake 256MB recommendation")
-            
-            logger.debug(f"Created Parquet file using PyArrow JSON reader: {len(events)} events, {parquet_size_mb:.2f}MB, {event_class} class")
-            
-            return parquet_data
+            logger.info(f"Wrote Parquet file using AWS Wrangler: {len(events)} events, {event_class} class to {s3_path}")
             
         except Exception as e:
-            logger.error(f"Failed to create Parquet buffer with PyArrow: {str(e)}")
-            logger.error(f"[PYARROW DEBUG] Exception type: {type(e).__name__}")
+            logger.error(f"Failed to write Parquet file with AWS Wrangler: {str(e)}")
+            logger.error(f"[AWSWRANGLER] Exception type: {type(e).__name__}")
             import traceback
-            logger.error(f"[PYARROW DEBUG] Traceback: {traceback.format_exc()}")
+            logger.error(f"[AWSWRANGLER] Traceback: {traceback.format_exc()}")
             raise
     
-    def _clean_event_for_pyarrow(self, event: Dict[str, Any]) -> Dict[str, Any]:
+    def _clean_event_for_awswrangler(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
         Clean OCSF event to remove empty dicts/lists and fix Azure EventHub byte string keys.
         - Removes empty dicts/lists that cause issues
         - Cleans Azure EventHub metadata byte string keys like b'x-opt-enqueued-time'
         - Drops event_metadata field entirely (not needed in Security Lake)
         - Removes "$" and "@" from dictionary keys (invalid Parquet field names)
+        - Converts Python repr strings back to proper arrays (e.g., "['cloud']" -> ["cloud"])
         
         Args:
             event: Template-generated OCSF event dictionary
@@ -329,6 +294,7 @@ class SecurityLakeClient:
         Returns:
             Cleaned event with empty structures removed and keys normalized
         """
+        import ast
         if isinstance(event, dict):
             cleaned = {}
             for key, value in event.items():
@@ -360,35 +326,150 @@ class SecurityLakeClient:
                 
                 if isinstance(value, dict):
                     # Recursively clean nested dicts
-                    cleaned_value = self._clean_event_for_pyarrow(value)
+                    cleaned_value = self._clean_event_for_awswrangler(value)
                     # Only include non-empty dicts
                     if cleaned_value:
                         cleaned[clean_key] = cleaned_value
                 elif isinstance(value, list):
-                    # For non-empty lists, check if they should be flattened to avoid PyArrow element-wrapping
+                    # Keep arrays as proper Python lists for PyArrow serialization
+                    # PyArrow's Table.from_pylist() correctly handles nested lists and arrays
+                    # OCSF schema REQUIRES array fields (e.g., compliance.standards, metadata.profiles)
+                    # to remain as arrays, NOT flattened to comma-separated strings
                     if value:
-                        # Check if this is a simple list of strings (flatten to comma-separated)
-                        if all(isinstance(item, str) for item in value):
-                            # Flatten to comma-separated string to avoid PyArrow's element-wrapping bug
-                            cleaned[clean_key] = ','.join(value)
+                        # Check if this is a simple list of primitives (strings, numbers, etc.)
+                        if all(isinstance(item, (str, int, float, bool)) for item in value):
+                            # Keep as list - PyArrow will serialize correctly to Parquet list<string> type
+                            cleaned[clean_key] = value
                         else:
                             # For lists of objects or mixed types, recursively clean but keep as list
-                            cleaned_list = [self._clean_event_for_pyarrow(item) for item in value]
+                            cleaned_list = [self._clean_event_for_awswrangler(item) for item in value]
                             # Remove None values and empty dicts from list
                             cleaned_list = [item for item in cleaned_list if item not in (None, {}, [])]
                             if cleaned_list:
                                 cleaned[clean_key] = cleaned_list
                 elif value is not None:
-                    # Include non-None primitive values
-                    cleaned[clean_key] = value
+                    # Check if this is a Python repr string that should be an array
+                    # Common with template outputs: "['cloud']" or "[{'name': 'x'}]"
+                    if isinstance(value, str) and value.startswith('[') and value.endswith(']'):
+                        try:
+                            # First try direct parsing
+                            parsed_value = ast.literal_eval(value)
+                            if isinstance(parsed_value, list):
+                                # Recursively clean the parsed list
+                                cleaned_list = [self._clean_event_for_awswrangler(item) for item in parsed_value]
+                                cleaned_list = [item for item in cleaned_list if item not in (None, {}, [])]
+                                if cleaned_list:
+                                    cleaned[clean_key] = cleaned_list
+                                else:
+                                    # Empty list after cleaning, skip
+                                    pass
+                            else:
+                                # Not a list after parsing, keep as string
+                                cleaned[clean_key] = value
+                        except (ValueError, SyntaxError):
+                            # Malformed Python repr - try fixing by adding commas after dict/list closures
+                            # Common issue: "[{...}\n {...}]" should be "[{...}, {...}]"
+                            try:
+                                import re
+                                # Fix malformed list strings by adding commas after } or ] followed by whitespace and {
+                                fixed_value = re.sub(r'(\}|\])\s+(\{|\[)', r'\1, \2', value)
+                                parsed_value = ast.literal_eval(fixed_value)
+                                if isinstance(parsed_value, list):
+                                    # Recursively clean the parsed list
+                                    cleaned_list = [self._clean_event_for_awswrangler(item) for item in parsed_value]
+                                    cleaned_list = [item for item in cleaned_list if item not in (None, {}, [])]
+                                    if cleaned_list:
+                                        cleaned[clean_key] = cleaned_list
+                                    else:
+                                        pass
+                                else:
+                                    # Not a list, keep as string
+                                    cleaned[clean_key] = value
+                            except (ValueError, SyntaxError):
+                                # Still can't parse, keep as string
+                                cleaned[clean_key] = value
+                    else:
+                        # Include non-None primitive values
+                        cleaned[clean_key] = value
             return cleaned
         elif isinstance(event, list):
             # Clean list items
-            cleaned_list = [self._clean_event_for_pyarrow(item) for item in event]
+            cleaned_list = [self._clean_event_for_awswrangler(item) for item in event]
             return [item for item in cleaned_list if item not in (None, {}, [])]
         else:
             # Return primitive values as-is
             return event
+    
+    def _remove_empty_struct_columns(self, df):
+        """
+        Remove DataFrame columns that contain only empty dictionaries/structs.
+        PyArrow cannot serialize empty struct types to Parquet, so we must remove them.
+        
+        Args:
+            df: Pandas DataFrame to clean
+            
+        Returns:
+            DataFrame with empty struct columns removed
+        """
+        columns_to_drop = []
+        
+        logger.debug(f"[EMPTY_STRUCT_CHECK] Checking {len(df.columns)} columns for empty structs")
+        
+        for col in df.columns:
+            # Check if all values in this column are empty dicts
+            try:
+                # Get all non-null values in this column
+                non_null_values = df[col].dropna()
+                
+                logger.debug(f"[EMPTY_STRUCT_CHECK] Column '{col}': {len(non_null_values)} non-null values, dtype={df[col].dtype}")
+                
+                if len(non_null_values) == 0:
+                    # Column is all nulls - can keep as-is
+                    logger.debug(f"[EMPTY_STRUCT_CHECK] Column '{col}': All nulls, keeping")
+                    continue
+                
+                # Sample first value for diagnosis
+                first_val = non_null_values.iloc[0]
+                logger.debug(f"[EMPTY_STRUCT_CHECK] Column '{col}': First value type={type(first_val)}, value={repr(first_val)}")
+                
+                # Check if all non-null values are empty dicts
+                is_empty_checks = []
+                for val in non_null_values:
+                    is_dict = isinstance(val, dict)
+                    is_empty = len(val) == 0 if is_dict else False
+                    is_empty_checks.append(is_dict and is_empty)
+                    if col == 'source_properties':  # Extra logging for problematic column
+                        logger.debug(f"[EMPTY_STRUCT_CHECK] source_properties value: type={type(val)}, is_dict={is_dict}, is_empty={is_empty}, repr={repr(val)}")
+                
+                all_empty_dicts = all(is_empty_checks)
+                
+                logger.debug(f"[EMPTY_STRUCT_CHECK] Column '{col}': all_empty_dicts={all_empty_dicts}, checks={is_empty_checks[:3]}...")
+                
+                if all_empty_dicts:
+                    logger.info(f"Removing column '{col}' - contains only empty structs")
+                    columns_to_drop.append(col)
+                    
+            except Exception as e:
+                logger.warning(f"Error checking column '{col}' for empty structs: {str(e)}")
+                import traceback
+                logger.warning(f"Traceback: {traceback.format_exc()}")
+                continue
+        
+        # Drop the empty struct columns
+        if columns_to_drop:
+            df = df.drop(columns=columns_to_drop)
+            logger.info(f"Removed {len(columns_to_drop)} empty struct columns: {columns_to_drop}")
+        else:
+            logger.warning(f"[EMPTY_STRUCT_CHECK] No empty struct columns detected to remove!")
+        
+        return df
+    
+    def _clean_event_for_pyarrow(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        DEPRECATED: Use _clean_event_for_awswrangler instead.
+        Kept for backward compatibility with any external callers.
+        """
+        return self._clean_event_for_awswrangler(event)
      
     def _generate_s3_key(self, source_name: str, event_class: str, timestamp: datetime,
                          region: str = 'Azure', account_id: str = 'unknown') -> str:
