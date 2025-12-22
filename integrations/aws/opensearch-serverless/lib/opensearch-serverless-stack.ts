@@ -612,15 +612,16 @@ export class OpenSearchServerlessStack extends cdk.Stack {
       // Encryption: Uses KMS key determined above, or unencrypted if no key specified
       kinesisStream = new Stream(this, 'KinesisStream', {
         streamName: config.kinesis.streamName,
-        streamMode: config.kinesis.streamMode === 'PROVISIONED' 
-          ? StreamMode.PROVISIONED 
+        streamMode: config.kinesis.streamMode === 'PROVISIONED'
+          ? StreamMode.PROVISIONED
           : StreamMode.ON_DEMAND,
         shardCount: config.kinesis.streamMode === 'PROVISIONED' ? config.kinesis.shardCount : undefined,
         retentionPeriod: Duration.hours(config.kinesis.retentionPeriodHours || 24),
-        encryption: kinesisEncryptionKey 
-          ? StreamEncryption.KMS 
+        encryption: kinesisEncryptionKey
+          ? StreamEncryption.KMS
           : StreamEncryption.UNENCRYPTED,
         encryptionKey: kinesisEncryptionKey,
+        removalPolicy: RemovalPolicy.DESTROY,
       });
 
       // Add stack outputs for Kinesis Data Stream
@@ -1307,7 +1308,7 @@ export class OpenSearchServerlessStack extends cdk.Stack {
       workspaceLambdaFunction.addToRolePolicy(
         new PolicyStatement({
           effect: Effect.ALLOW,
-          actions: ['aoss:DashboardsAccessAll'],
+          actions: ['aoss:DashboardsAccessAll', 'opensearch:ApplicationAccessAll'],
           resources: ['*'],
         })
       );

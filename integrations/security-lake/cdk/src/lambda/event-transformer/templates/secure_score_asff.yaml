@@ -55,7 +55,7 @@ template: |
       }
     },
     "Title": "{{ extractors.score_name | default('Azure Secure Score') }}",
-    "Description": "{{ extractors.score_description | default('Security posture assessment for Azure resources') | replace('\n', ' ') | replace('\"', '\\\"') | truncate(1024) }}",
+    "Description": "{% if extractors.score_description and extractors.score_description | string | trim %}{{ extractors.score_description | replace('\n', ' ') | replace('\"', '\\\"') | truncate(1024) }}{% else %}Azure Secure Score: Current score {{ extractors.score_current | default('N/A') }} out of {{ extractors.score_max | default('N/A') }} ({{ extractors.score_percentage | default('N/A') }}%){% endif %}",
     "Remediation": {
       "Recommendation": {
         "Text": "Review and implement security recommendations to improve your secure score",
@@ -73,13 +73,7 @@ template: |
     },
     "Compliance": {
       "Status": "{{ extractors.score_current | score_to_compliance_status(extractors.score_max) }}",
-      "RelatedRequirements": ["Azure Secure Score"],
-      "StatusReasons": [
-        {
-          "ReasonCode": "{{ extractors.score_current | score_to_reason_code(extractors.score_max) }}",
-          "Description": "Current score: {{ extractors.score_current | default(0) }} out of {{ extractors.score_max | default(0) }} ({{ extractors.score_percentage | default(0) }}%)"
-        }
-      ]
+      "RelatedRequirements": ["Azure Secure Score"]
     },
     "Resources": [
       {
@@ -97,24 +91,6 @@ template: |
 
 # Custom filters for Azure Secure Score ASFF transformation
 filters:
-  score_to_reason_code: |
-    def score_to_reason_code(score_current, score_max=100):
-        # Valid ASFF ReasonCode values: NOT_COMPLIANT, PASSED, NOT_APPLICABLE, DATA_NOT_AVAILABLE, etc.
-        try:
-            if score_current is None or score_max is None:
-                return 'DATA_NOT_AVAILABLE'
-            current = float(score_current) if score_current else 0
-            maximum = float(score_max) if score_max else 100
-            if maximum == 0:
-                return 'DATA_NOT_AVAILABLE'
-            percentage = (current / maximum) * 100
-            if percentage >= 90:
-                return 'PASSED'
-            else:
-                return 'NOT_COMPLIANT'
-        except Exception:
-            return 'DATA_NOT_AVAILABLE'
-  
   score_to_compliance_status: |
     def score_to_compliance_status(score_current, score_max=100):
         try:

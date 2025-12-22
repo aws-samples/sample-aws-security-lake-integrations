@@ -171,7 +171,7 @@ export class WorkspaceCreator extends Construct {
           actions: [
             'aoss:APIAccessAll',
           ],
-          resources: [props.collectionArn],
+          resources: ["*"],
         })
       );
 
@@ -180,8 +180,8 @@ export class WorkspaceCreator extends Construct {
       this.lambdaFunction.addToRolePolicy(
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
-          actions: ['aoss:DashboardsAccessAll'],
-          resources: ['*'], // Resource format is arn:aws:aoss:{region}:{account}:dashboards/default
+          actions: ['aoss:DashboardsAccessAll','opensearch:ApplicationAccessAll'],
+          resources: ['*'],
         })
       );
     }

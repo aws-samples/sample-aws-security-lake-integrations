@@ -87,10 +87,6 @@ template: |
         "StandardsId": "standards/{{ extractors.standard_name | lower | replace(' ', '-') }}"
       }]
       {%- endif -%}
-      ,"StatusReasons": [{
-        "ReasonCode": "{{ extractors.compliance_state | compliance_reason_code }}",
-        "Description": "{{ extractors.assessment_description | default_if_invalid(extractors.assessment_name) | default_if_invalid('Compliance assessment') | json_escape | truncate(256) }}"
-      }]
     },
     "Remediation": {
       "Recommendation": {
@@ -112,21 +108,6 @@ template: |
 
 # Custom filters for Azure Compliance Assessment ASFF transformation
 filters:
-  compliance_reason_code: |
-    def compliance_reason_code(compliance_state):
-        # Valid ASFF ReasonCode values: CONSTRAINT_NOT_SATISFIED, NOT_APPLICABLE, NOT_VERIFIED, INTERNAL_SERVICE_ERROR, RESOURCE_NOT_FOUND, RESOURCE_DELETED
-        if not compliance_state or not isinstance(compliance_state, str):
-            return 'INTERNAL_SERVICE_ERROR'
-        state_upper = compliance_state.upper()
-        if state_upper in ['FAILED', 'NONCOMPLIANT', 'NON_COMPLIANT', 'UNHEALTHY']:
-            return 'CONSTRAINT_NOT_SATISFIED'
-        elif state_upper in ['PASSED', 'COMPLIANT', 'HEALTHY']:
-            return 'NOT_APPLICABLE'
-        elif state_upper in ['NOTAPPLICABLE', 'NOT_APPLICABLE', 'EXEMPT']:
-            return 'NOT_APPLICABLE'
-        else:
-            return 'INTERNAL_SERVICE_ERROR'
-  
   compliance_status: |
     def compliance_status(compliance_state):
         if not compliance_state or not isinstance(compliance_state, str):

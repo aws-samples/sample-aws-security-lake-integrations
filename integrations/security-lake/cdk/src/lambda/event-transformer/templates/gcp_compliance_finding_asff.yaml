@@ -79,11 +79,7 @@ template: |
       "SecurityControlId": "{{ first_compliance.ids[0] }}",{% endif %}{% if first_compliance.standard %}
       "AssociatedStandards": [{
         "StandardsId": "standards/{{ first_compliance.standard | lower | replace(' ', '-') }}"
-      }],{% endif %}{% endif %}
-      "StatusReasons": [{
-        "ReasonCode": "{{ extractors.state | gcp_state_to_reason_code }}",
-        "Description": "{{ extractors.description | default(extractors.category) | default('GCP compliance finding') | json_escape | truncate(256) }}"
-      }]
+      }]{% endif %}{% endif %}
     },{% endif %}{% if extractors.recommendation or extractors.next_steps or extractors.external_uri %}
     "Remediation": {
       "Recommendation": {
@@ -193,21 +189,6 @@ filters:
             'INACTIVE': 'PASSED'
         }
         return state_map.get(str(state).upper(), 'NOT_AVAILABLE')
-  
-  gcp_state_to_reason_code: |
-    def gcp_state_to_reason_code(state):
-        # Valid ASFF ReasonCode values: CONSTRAINT_NOT_SATISFIED, NOT_APPLICABLE, NOT_VERIFIED, INTERNAL_SERVICE_ERROR, RESOURCE_NOT_FOUND, RESOURCE_DELETED
-        if not state:
-            return 'INTERNAL_SERVICE_ERROR'
-        state_upper = str(state).upper()
-        if state_upper == 'ACTIVE':
-            return 'CONSTRAINT_NOT_SATISFIED'
-        elif state_upper == 'INACTIVE':
-            return 'NOT_APPLICABLE'
-        elif state_upper in ['MUTED', 'UNMUTED']:
-            return 'NOT_APPLICABLE'
-        else:
-            return 'INTERNAL_SERVICE_ERROR'
   
   normalize_timestamp: |
     def normalize_timestamp(timestamp_str):

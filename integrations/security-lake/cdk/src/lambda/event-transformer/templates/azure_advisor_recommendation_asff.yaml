@@ -70,11 +70,7 @@ template: |
       "RelatedRequirements": [
         "Azure Advisor Best Practices",
         "{{ extractors.recommendation_category | default('Security') }} - {{ extractors.recommendation_impact | default('Medium') }} Impact"
-      ],
-      "StatusReasons": [{
-        "ReasonCode": "{{ extractors.result_type | advisor_compliance_reason_code }}",
-        "Description": "{{ extractors.recommendation_name | default('Azure Advisor recommendation') | json_escape | truncate(256) }}"
-      }]
+      ]
     },
     "Remediation": {
       "Recommendation": {
@@ -168,19 +164,6 @@ filters:
             return 'PASSED'
         else:
             return 'NOT_AVAILABLE'
-  
-  advisor_compliance_reason_code: |
-    def advisor_compliance_reason_code(result_type):
-        # Valid ASFF ReasonCode values: CONSTRAINT_NOT_SATISFIED, NOT_APPLICABLE, NOT_VERIFIED, INTERNAL_SERVICE_ERROR, RESOURCE_NOT_FOUND, RESOURCE_DELETED
-        if not result_type or not isinstance(result_type, str):
-            return 'CONSTRAINT_NOT_SATISFIED'
-        result_upper = result_type.upper()
-        if result_upper == 'ACTIVE':
-            return 'CONSTRAINT_NOT_SATISFIED'
-        elif result_upper == 'RESOLVED':
-            return 'NOT_APPLICABLE'
-        else:
-            return 'NOT_APPLICABLE'
   
   advisor_record_state: |
     def advisor_record_state(result_type):
