@@ -50,7 +50,7 @@ template: |
     "AwsAccountId": "{{ aws_account_id }}",
     "Types": {{ extractors.alert_type | to_asff_types }},
     "CreatedAt": "{{ extractors.time_generated | normalize_timestamp }}",
-    "UpdatedAt": "{{ extractors.time_generated | add_one_second | normalize_timestamp }}",
+    "UpdatedAt": "{{ extractors.time_generated | normalize_timestamp }}",
     "Severity": {
       "Label": "{{ extractors.severity | asff_severity_label }}",
       "Normalized": {{ extractors.severity | asff_severity_normalized }}

@@ -42,7 +42,7 @@ template: |
     "Types": ["Unusual Behaviors/Application"],
     "FirstObservedAt": "{{ extractors.time_generated | default(extractors.event_time) | normalize_timestamp }}",
     "CreatedAt": "{{ extractors.time_generated | default(extractors.event_time) | normalize_timestamp }}",
-    "UpdatedAt": "{{ extractors.time_generated | default(extractors.event_time) | add_one_second | normalize_timestamp }}",
+    "UpdatedAt": "{{ extractors.time_generated | default(extractors.event_time) | normalize_timestamp }}",
     "Severity": {
       "Label": "INFORMATIONAL",
       "Normalized": 10
