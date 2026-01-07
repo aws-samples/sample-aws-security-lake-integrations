@@ -259,7 +259,7 @@
     "cloudtrail_template": null
   },
   "gcp_api_activity": {
-    "detection_keys": ["protoPayload.methodName", "protoPayload.serviceName", "protoPayload.authenticationInfo"],
+    "detection_keys": ["protoPayload.methodName"],
     "event_type_key": "logName",
     "event_type_value": "cloudaudit.googleapis.com",
     "event_type_match_mode": "contains",

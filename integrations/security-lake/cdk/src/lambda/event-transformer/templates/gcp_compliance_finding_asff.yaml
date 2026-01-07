@@ -49,9 +49,9 @@ template: |
     "GeneratorId": "gcp-scc-compliance",
     "AwsAccountId": "{{ aws_account_id }}",
     "Types": ["Software and Configuration Checks/Industry and Regulatory Standards"],
-    "FirstObservedAt": "{{ extractors.create_time | normalize_timestamp }}",
-    "CreatedAt": "{{ extractors.create_time | normalize_timestamp }}",
-    "UpdatedAt": "{{ extractors.event_time | normalize_timestamp }}",
+    "FirstObservedAt": "{{ extractors.event_time | default(extractors.create_time) | normalize_timestamp }}",
+    "CreatedAt": "{{ extractors.create_time | default(extractors.event_time) | normalize_timestamp }}",
+    "UpdatedAt": "{{ extractors.create_time | default(extractors.event_time) | normalize_timestamp }}",
     "Severity": {
       "Label": "{{ extractors.severity | gcp_to_asff_severity_label }}",
       "Normalized": {{ extractors.severity | gcp_to_asff_severity_normalized }}
